@@ -43,3 +43,9 @@ dataset_batch = dataset.repeat(2).batch(4)
 for data in dataset_batch:
     print(data)
 print('--------------')
+# 洗牌,打乱数据,buffer_size表示从多少个元素里随机
+input_data = np.arange(16)
+dataset = tf.data.Dataset.from_tensor_slices(input_data).shuffle(buffer_size=10).batch(4)
+for data in dataset:
+    print(data)
+print('--------------')
