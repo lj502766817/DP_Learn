@@ -1,5 +1,5 @@
 """
-用神经网络进行气温预测
+回归任务demo
 """
 import datetime
 
