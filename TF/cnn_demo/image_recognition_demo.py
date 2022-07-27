@@ -46,7 +46,7 @@ model = tf.keras.models.Sequential([
 # 看下网络的整个结构
 print(model.summary())
 
-# 配置响应的训练参数
+# 配置相应的训练参数
 model.compile(
     # 二分类的交叉熵损失函数
     loss='binary_crossentropy',
@@ -79,13 +79,15 @@ validation_generator = test_datagen.flow_from_directory(
     batch_size=20,
     class_mode='binary')
 
-# 进行训练
+# 进行训练,动态的生成batch
 history = model.fit_generator(
     train_generator,
-    steps_per_epoch=100,  # 2000 images = batch_size * steps
+    # 2000 images = batch_size * steps
+    steps_per_epoch=100,  
     epochs=20,
     validation_data=validation_generator,
-    validation_steps=50,  # 1000 images = batch_size * steps
+    # 1000 images = batch_size * steps
+    validation_steps=50,  
     verbose=2)
 
 # 画图看看模型的效果
