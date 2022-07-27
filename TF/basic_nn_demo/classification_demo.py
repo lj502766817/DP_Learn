@@ -30,11 +30,23 @@ model.add(layers.Dense(10, activation='softmax'))
 # 选择损失和评估函数要用合适的
 model.compile(
     # adam优化算法,https://blog.csdn.net/dianyanxia/article/details/107862618
-    optimizer=tf.keras.optimizers.Adam(0.001),
+    optimizer=tf.keras.optimizers.Adam(0.005),
     # 交叉熵损失函数,注意有多种实现:https://www.tensorflow.org/api_docs/python/tf/keras/losses/SparseCategoricalCrossentropy
     loss=tf.losses.SparseCategoricalCrossentropy(),
     # 真实值与预测值匹配率函数:acc = np.dot(sample_weight, np.equal(y_true, np.argmax(y_pred, axis=1))
     metrics=[tf.keras.metrics.SparseCategoricalAccuracy()]
 )
 # 训练
+print("\n learn rate 0.001 \n")
 model.fit(x_train, y_train, epochs=5, batch_size=64, validation_data=(x_valid, y_valid))
+
+# 重新整理数据,根据steps_per_epoch进行训练
+train = tf.data.Dataset.from_tensor_slices((x_train, y_train))
+train = train.batch(32)
+train = train.repeat()
+
+valid = tf.data.Dataset.from_tensor_slices((x_valid, y_valid))
+valid = valid.batch(32)
+valid = valid.repeat()
+print("user params steps_per_epoch")
+model.fit(train, epochs=5, steps_per_epoch=100, validation_data=valid, validation_steps=100)
