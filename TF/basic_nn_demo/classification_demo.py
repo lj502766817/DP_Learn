@@ -67,6 +67,7 @@ pyplot.imshow(train_images[0])
 pyplot.colorbar()
 pyplot.grid(False)
 pyplot.show()
+# 相当于做了个数据的预处理
 train_images = train_images / 255.0
 test_images = test_images / 255.0
 pyplot.figure(figsize=(10, 10))
