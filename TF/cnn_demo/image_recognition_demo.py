@@ -3,9 +3,12 @@
 """
 import os
 import tensorflow as tf
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from keras.optimizers import Adam
+from keras.preprocessing.image import ImageDataGenerator
 import matplotlib.pyplot as plt
+
+physical_devices = tf.config.experimental.list_physical_devices('GPU')
+tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 # 数据文件夹
 base_dir = './data/cats_and_dogs'
@@ -113,26 +116,6 @@ plt.show()
 # 完全过拟合了呢~
 
 # 有可能是原始数据集不够好的因素,试试做下数据增强
-# 保持模型的网络和配置不变
-model = tf.keras.models.Sequential([
-    tf.keras.layers.Conv2D(32, (3, 3), activation='relu', input_shape=(64, 64, 3)),
-    tf.keras.layers.MaxPooling2D(2, 2),
-
-    tf.keras.layers.Conv2D(64, (3, 3), activation='relu'),
-    tf.keras.layers.MaxPooling2D(2, 2),
-
-    tf.keras.layers.Conv2D(128, (3, 3), activation='relu'),
-    tf.keras.layers.MaxPooling2D(2, 2),
-
-    tf.keras.layers.Flatten(),
-
-    tf.keras.layers.Dense(512, activation='relu'),
-
-    tf.keras.layers.Dense(1, activation='sigmoid')
-])
-model.compile(loss='binary_crossentropy',
-              optimizer=Adam(lr=1e-4),
-              metrics=['acc'])
 # 增强原始训练集数据
 train_datagen = ImageDataGenerator(
     # 归一化,不聊
@@ -164,6 +147,26 @@ validation_generator = test_datagen.flow_from_directory(
     batch_size=20,
     class_mode='binary')
 
+# 保持模型的网络和配置不变
+model = tf.keras.models.Sequential([
+    tf.keras.layers.Conv2D(32, (3, 3), activation='relu', input_shape=(64, 64, 3)),
+    tf.keras.layers.MaxPooling2D(2, 2),
+
+    tf.keras.layers.Conv2D(64, (3, 3), activation='relu'),
+    tf.keras.layers.MaxPooling2D(2, 2),
+
+    tf.keras.layers.Conv2D(128, (3, 3), activation='relu'),
+    tf.keras.layers.MaxPooling2D(2, 2),
+
+    tf.keras.layers.Flatten(),
+
+    tf.keras.layers.Dense(512, activation='relu'),
+
+    tf.keras.layers.Dense(1, activation='sigmoid')
+])
+model.compile(loss='binary_crossentropy',
+              optimizer=Adam(lr=1e-4),
+              metrics=['acc'])
 # 训练
 history = model.fit_generator(
     train_generator,
@@ -197,3 +200,61 @@ plt.legend()
 
 plt.show()
 # 会好一些
+
+# 再试试做下dropout后的结果
+# 加上一个dropout层
+model = tf.keras.models.Sequential([
+    tf.keras.layers.Dropout(0.2),
+    tf.keras.layers.Conv2D(32, (3, 3), activation='relu', input_shape=(64, 64, 3)),
+    tf.keras.layers.MaxPooling2D(2, 2),
+
+    tf.keras.layers.Dropout(0.2),
+    tf.keras.layers.Conv2D(64, (3, 3), activation='relu'),
+    tf.keras.layers.MaxPooling2D(2, 2),
+
+    tf.keras.layers.Dropout(0.2),
+    tf.keras.layers.Conv2D(128, (3, 3), activation='relu'),
+    tf.keras.layers.MaxPooling2D(2, 2),
+
+    tf.keras.layers.Flatten(),
+
+    tf.keras.layers.Dense(512, activation='relu'),
+
+    tf.keras.layers.Dense(1, activation='sigmoid')
+])
+model.compile(loss='binary_crossentropy',
+              optimizer=Adam(lr=1e-4),
+              metrics=['acc'])
+# 训练
+history = model.fit_generator(
+    train_generator,
+    # 2000 images = batch_size * steps
+    steps_per_epoch=100,
+    epochs=100,
+    validation_data=validation_generator,
+    # 1000 images = batch_size * steps
+    validation_steps=50,
+    verbose=2)
+
+# 看看做了数据增强之后的效果
+acc = history.history['acc']
+val_acc = history.history['val_acc']
+loss = history.history['loss']
+val_loss = history.history['val_loss']
+
+epochs = range(len(acc))
+
+plt.plot(epochs, acc, 'b', label='Training accuracy')
+plt.plot(epochs, val_acc, 'r', label='Validation accuracy')
+plt.title('Training and validation accuracy')
+plt.legend()
+
+plt.figure()
+
+plt.plot(epochs, loss, 'b', label='Training Loss')
+plt.plot(epochs, val_loss, 'r', label='Validation Loss')
+plt.title('Training and validation loss')
+plt.legend()
+
+plt.show()
+# 好像并不理想
