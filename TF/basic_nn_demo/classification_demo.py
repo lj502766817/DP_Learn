@@ -8,6 +8,7 @@ from matplotlib import pyplot
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers
+from tensorflow import keras
 
 # 读mnist数据,mnist数据集是28*28*1的灰度图,每个数据有784个特征,就是784个像素点
 DATA_PATH = Path("data")
@@ -50,3 +51,116 @@ valid = valid.batch(32)
 valid = valid.repeat()
 print("user params steps_per_epoch")
 model.fit(train, epochs=5, steps_per_epoch=100, validation_data=valid, validation_steps=100)
+
+# 换个数据集练手
+fashion_mnist = keras.datasets.fashion_mnist
+(train_images, train_labels), (test_images, test_labels) = fashion_mnist.load_data()
+# 数据集里有哪些类别
+class_names = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat', 'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
+# 看一下数据
+print(train_images.shape)
+print(len(train_labels))
+print(test_images.shape)
+# 展示一下数据
+pyplot.figure()
+pyplot.imshow(train_images[0])
+pyplot.colorbar()
+pyplot.grid(False)
+pyplot.show()
+train_images = train_images / 255.0
+test_images = test_images / 255.0
+pyplot.figure(figsize=(10, 10))
+for i in range(25):
+    pyplot.subplot(5, 5, i + 1)
+    pyplot.xticks([])
+    pyplot.yticks([])
+    pyplot.grid(False)
+    pyplot.imshow(train_images[i], cmap=pyplot.cm.binary)
+    pyplot.xlabel(class_names[train_labels[i]])
+pyplot.show()
+# 做分类训练
+model = keras.Sequential([
+    # 这一步是把28*28像素的图片拉平
+    keras.layers.Flatten(input_shape=(28, 28)),
+    # 剩下的就正常做全连接,然后softmax做分类
+    keras.layers.Dense(128, activation='relu'),
+    keras.layers.Dense(10, activation='softmax')
+])
+model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+model.fit(train_images, train_labels, epochs=10)
+
+# 模型训练好后,用测试集做下评估
+test_loss, test_acc = model.evaluate(test_images, test_labels, verbose=2)
+print('\nTest accuracy:', test_acc)
+# 做下预测,看看预测结果
+predictions = model.predict(test_images)
+print(predictions[0])
+print(np.argmax(predictions[0]))
+
+
+# 做下结果的可视化展示
+def plot_image(i, predictions_array, true_label, img):
+    predictions_array, true_label, img = predictions_array, true_label[i], img[i]
+    pyplot.grid(False)
+    pyplot.xticks([])
+    pyplot.yticks([])
+
+    pyplot.imshow(img, cmap=pyplot.cm.binary)
+
+    predicted_label = np.argmax(predictions_array)
+    if predicted_label == true_label:
+        color = 'blue'
+    else:
+        color = 'red'
+
+    pyplot.xlabel("{} {:2.0f}% ({})".format(class_names[predicted_label],
+                                            100 * np.max(predictions_array),
+                                            class_names[true_label]),
+                  color=color)
+
+
+def plot_value_array(i, predictions_array, true_label):
+    predictions_array, true_label = predictions_array, true_label[i]
+    pyplot.grid(False)
+    pyplot.xticks(range(10))
+    pyplot.yticks([])
+    thisplot = pyplot.bar(range(10), predictions_array, color="#777777")
+    pyplot.ylim([0, 1])
+    predicted_label = np.argmax(predictions_array)
+
+    thisplot[predicted_label].set_color('red')
+    thisplot[true_label].set_color('blue')
+
+
+i = 0
+pyplot.figure(figsize=(6, 3))
+pyplot.subplot(1, 2, 1)
+plot_image(i, predictions[i], test_labels, test_images)
+pyplot.subplot(1, 2, 2)
+plot_value_array(i, predictions[i], test_labels)
+pyplot.show()
+
+i = 12
+pyplot.figure(figsize=(6, 3))
+pyplot.subplot(1, 2, 1)
+plot_image(i, predictions[i], test_labels, test_images)
+pyplot.subplot(1, 2, 2)
+plot_value_array(i, predictions[i], test_labels)
+pyplot.show()
+
+# 最后,训练好的网络需要保存下来
+# 保存整个模型
+model.save('fashion_model.h5')
+# 把网络的架构导成json格式
+config = model.to_json()
+with open('config.json', 'w') as json:
+    json.write(config)
+# 从json里读取网络架构
+model = keras.models.model_from_json(config)
+print(model.summary())
+# 查看下权重参数
+weights = model.get_weights()
+print(weights)
+# 保存和加载权重参数
+model.save_weights('weights.h5')
+model.load_weights('weights.h5')
