@@ -31,8 +31,8 @@ model.add(layers.Dense(10, activation='softmax'))
 model.compile(
     # adam优化算法,https://blog.csdn.net/dianyanxia/article/details/107862618
     optimizer=tf.keras.optimizers.Adam(0.001),
-    # 交叉熵损失函数
-    loss=tf.losses.CategoricalCrossentropy(),
+    # 交叉熵损失函数,注意有多种实现:https://www.tensorflow.org/api_docs/python/tf/keras/losses/SparseCategoricalCrossentropy
+    loss=tf.losses.SparseCategoricalCrossentropy(),
     # 真实值与预测值匹配率函数:acc = np.dot(sample_weight, np.equal(y_true, np.argmax(y_pred, axis=1))
     metrics=[tf.keras.metrics.SparseCategoricalAccuracy()]
 )
