@@ -5,6 +5,14 @@ import tensorflow as tf
 import numpy as np
 
 print(tf.__version__)
+# 解决CUDA_ERROR_OUT_OF_MEMORY: out of memory错误
+physical_devices = tf.config.experimental.list_physical_devices('GPU')
+if len(physical_devices) > 0:
+    for k in range(len(physical_devices)):
+        tf.config.experimental.set_memory_growth(physical_devices[k], True)
+        print('memory growth:', tf.config.experimental.get_memory_growth(physical_devices[k]))
+else:
+    print("Not enough GPU hardware devices available")
 
 x = [[2, 3]]
 y = [[4], [5]]

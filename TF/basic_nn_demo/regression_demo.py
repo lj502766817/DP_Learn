@@ -8,7 +8,10 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from sklearn import preprocessing
-from tensorflow.keras import layers
+from tensorflow.python.keras import layers
+
+physical_devices = tf.config.experimental.list_physical_devices('GPU')
+tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 # 先读取数据,看数据是什么样的
 features = pd.read_csv("./data/temps.csv")

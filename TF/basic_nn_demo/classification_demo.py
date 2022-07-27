@@ -7,8 +7,12 @@ from pathlib import Path
 from matplotlib import pyplot
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras import layers
+from tensorflow.python.keras import layers
 from tensorflow import keras
+
+# 解决CUDA_ERROR_OUT_OF_MEMORY: out of memory错误
+physical_devices = tf.config.experimental.list_physical_devices('GPU')
+tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 # 读mnist数据,mnist数据集是28*28*1的灰度图,每个数据有784个特征,就是784个像素点
 DATA_PATH = Path("data")
@@ -38,7 +42,6 @@ model.compile(
     metrics=[tf.keras.metrics.SparseCategoricalAccuracy()]
 )
 # 训练
-print("\n learn rate 0.001 \n")
 model.fit(x_train, y_train, epochs=5, batch_size=64, validation_data=(x_valid, y_valid))
 
 # 重新整理数据,根据steps_per_epoch进行训练
