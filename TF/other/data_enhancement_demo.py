@@ -30,6 +30,7 @@ gen_data = datagen.flow_from_directory(in_path, batch_size=1, shuffle=False,
                                        save_to_dir=out_path + 'resize',
                                        save_prefix='gen', target_size=(224, 224))
 for i in range(3):
+    # batch_size=1,那么每次迭代就会产生1个结果,也就是一个图片数据
     gen_data.next()
 print_result(out_path + 'resize/*')
 
