@@ -255,3 +255,4 @@ plt.title('Training and validation loss')
 plt.legend()
 
 plt.show()
+# 没有过拟合了,效果还行
