@@ -6,6 +6,9 @@ import tensorflow as tf
 from keras.optimizers import Adam
 from keras.preprocessing.image import ImageDataGenerator
 import matplotlib.pyplot as plt
+from tensorflow.keras.applications.resnet import ResNet50
+from tensorflow.keras import layers
+from tensorflow.keras import Model
 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 tf.config.experimental.set_memory_growth(physical_devices[0], True)
@@ -256,3 +259,86 @@ plt.legend()
 
 plt.show()
 # 没有过拟合了,效果还行
+
+# 迁移学习,用一些经典网络来训练
+pre_trained_model = ResNet50(
+    # 输入大小
+    input_shape=(64, 64, 3),
+    # 不要最后的全连接层
+    include_top=False,
+    weights='imagenet')
+
+# 可以手动选择要训练哪些层
+for layer in pre_trained_model.layers:
+    layer.trainable = False
+
+
+# callback相当于一个监视器,在训练的过程中做一些自定义,例如:提前中断,改变学习率等等
+# callbacks = [
+# 如果连续两个epoch还没降低就停止：
+#   tf.keras.callbacks.EarlyStopping(patience=2, monitor='val_loss'),
+# 可以动态改变学习率：
+#   tf.keras.callbacks.LearningRateScheduler
+# 保存模型：
+#   tf.keras.callbacks.ModelCheckpoint
+# 自定义方法：
+#   tf.keras.callbacks.Callback
+# ]
+# 自己自定义一个callback,如果准确率到了95%就停下来
+class MyCallback(tf.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, logs=None):
+        if logs is None:
+            logs = {}
+        if logs.get('acc') > 0.95:
+            print("\nReached 95% accuracy so cancelling training!")
+            self.model.stop_training = True
+
+
+# 拉平做全连接
+x = layers.Flatten()(pre_trained_model.output)
+# FC层
+x = layers.Dense(1024, activation='relu')(x)
+x = layers.Dropout(0.2)(x)
+# 输出层
+x = layers.Dense(1, activation='sigmoid')(x)
+# 构建模型序列
+model = Model(pre_trained_model.input, x, name='ResNet50-modified')
+
+model.compile(optimizer=Adam(lr=0.001),
+              loss='binary_crossentropy',
+              metrics=['acc'])
+
+print(model.summary())
+
+# 进行模型训练,加入callback的模块
+callbacks = MyCallback()
+history = model.fit_generator(
+    train_generator,
+    validation_data=validation_generator,
+    steps_per_epoch=100,
+    epochs=100,
+    validation_steps=50,
+    verbose=2,
+    callbacks=[callbacks])
+
+# 画图看结果
+acc = history.history['acc']
+val_acc = history.history['val_acc']
+loss = history.history['loss']
+val_loss = history.history['val_loss']
+
+epochs = range(len(acc))
+
+plt.plot(epochs, acc, 'b', label='Training accuracy')
+plt.plot(epochs, val_acc, 'r', label='Validation accuracy')
+plt.title('Training and validation accuracy')
+plt.legend()
+
+plt.figure()
+
+plt.plot(epochs, loss, 'b', label='Training Loss')
+plt.plot(epochs, val_loss, 'r', label='Validation Loss')
+plt.title('Training and validation loss')
+plt.legend()
+
+plt.show()
