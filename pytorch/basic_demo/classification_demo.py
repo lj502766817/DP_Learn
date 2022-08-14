@@ -58,7 +58,10 @@ class MnistNn(nn.Module):
         self.out = nn.Linear(256, 10)
 
     def forward(self, x):
+        # 经过第一个隐层,用relu激活一下
         x = func.relu(self.hidden1(x))
+        # 加上dropout
+        x = func.dropout(x, p=0.5)
         x = func.relu(self.hidden2(x))
         x = self.out(x)
         return x
@@ -85,15 +88,17 @@ valid_dl = DataLoader(valid_ds, batch_size=bs * 2)
 # 训练函数
 def fit(steps, model, loss_func, opt, train_dl, valid_dl):
     for step in range(steps):
+        # 开启训练模式
         model.train()
         for xb, yb in train_dl:
             loss_batch(model, loss_func, xb, yb, opt)
-
+        # 开启验证模式
         model.eval()
         with torch.no_grad():
             losses, nums = zip(
                 *[loss_batch(model, loss_func, xb, yb) for xb, yb in valid_dl]
             )
+        # 计算平均损失
         val_loss = np.sum(np.multiply(losses, nums)) / np.sum(nums)
         print('当前step:' + str(step), '验证集损失：' + str(val_loss))
 
@@ -101,6 +106,7 @@ def fit(steps, model, loss_func, opt, train_dl, valid_dl):
 # 获取模型和优化器
 def get_model():
     model = MnistNn()
+    # SGD优化器
     return model, optim.SGD(model.parameters(), lr=0.001)
 
 
@@ -112,9 +118,9 @@ def loss_batch(model, loss_func, xb, yb, opt=None):
     if opt is not None:
         # 反向传播计算梯度
         loss.backward()
-        # 优化器执行一次参数优化
+        # 优化器执行一次参数更新
         opt.step()
-        # 梯度值归零
+        # 将梯度累计值清零
         opt.zero_grad()
 
     return loss.item(), len(xb)
@@ -131,3 +137,15 @@ def get_data(train_ds, valid_ds, bs):
 train_dl, valid_dl = get_data(train_ds, valid_ds, bs)
 model, opt = get_model()
 fit(25, model, loss_func, opt, train_dl, valid_dl)
+
+# 训练完模型,看下准确率
+correct = 0
+total = 0
+# 一个batch一个batch的去看
+for xb, yb in valid_dl:
+    outputs = model(xb)
+    # 最大的值,和对应索引,这里只要索引
+    _, predicted = torch.max(outputs, 1)
+    total += yb.size(0)
+    correct += (predicted == yb).sum().item()
+print('accuracy is: %d %%' % (100*correct/total))
