@@ -8,6 +8,8 @@ import torch.utils.data as torch_data_util
 from torchvision import datasets, transforms
 
 # 先把一些超参数定义一下
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Using {device} device")
 # 图像的总尺寸28*28
 input_size = 28
 # 标签的种类数
@@ -107,7 +109,7 @@ def accuracy(predictions, labels):
 
 # 做模型的训练
 # 实例化
-net = CNN()
+net = CNN().to(device)
 # 损失函数,分类任务用交叉熵
 criterion = nn.CrossEntropyLoss()
 # 优化器
@@ -120,6 +122,8 @@ for epoch in range(num_epochs):
 
     # 针对容器中的每一个批进行循环
     for batch_idx, (data, target) in enumerate(train_loader):
+        data = data.to(device)
+        target = target.to(device)
         # 开启训练模式
         net.train()
         # 前向传播计算结果
@@ -144,6 +148,8 @@ for epoch in range(num_epochs):
             val_rights = []
 
             for (test_data, test_target) in test_loader:
+                test_data = test_data.to(device)
+                test_target = test_target.to(device)
                 output = net(test_data)
                 right = accuracy(output, test_target)
                 val_rights.append(right)
@@ -155,4 +161,4 @@ for epoch in range(num_epochs):
             print('当前epoch: {} [{}/{} ({:.0f}%)]\t当前损失: {:.6f}\t训练集准确率: {:.2f}%\t测试集正确率: {:.2f}%'
                   .format(epoch, batch_idx * batch_size, len(train_dataset)
                           , 100. * batch_idx / len(train_loader)
-                          , loss.data, 100. * train_r[0].numpy() / train_r[1], 100. * val_r[0].numpy() / val_r[1]))
+                          , loss.data, 100. * train_r[0] / train_r[1], 100. * val_r[0] / val_r[1]))
