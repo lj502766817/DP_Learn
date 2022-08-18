@@ -262,7 +262,7 @@ for param in model_ft.parameters():
 
 # 再继续训练所有的参数，学习率调小一点
 optimizer = optim.Adam(model_ft.parameters(), lr=1e-3)
-scheduler = optim.lr_scheduler.StepLR(optimizer_ft, step_size=10, gamma=0.1)
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
 # 损失函数
 criterion = nn.CrossEntropyLoss()
