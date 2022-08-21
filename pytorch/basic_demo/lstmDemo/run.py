@@ -64,8 +64,10 @@ if __name__ == '__main__':
     config.n_vocab = len(vocab)
     # 构建模型并丢到设备里
     model = x.Model(config).to(config.device)
+    # 一些日志
     writer = SummaryWriter(log_dir=config.log_path + '/' + time.strftime('%m-%d_%H.%M', time.localtime()))
     if model_name != 'Transformer':
         init_network(model)
     print(model.parameters)
+    # 做训练
     train(config, model, train_iter, dev_iter, test_iter, writer)

@@ -38,7 +38,7 @@ class Config(object):
         self.num_classes = len(self.class_list)
         # 词表大小，在运行时赋值
         self.n_vocab = 0
-        self.num_epochs = 10
+        self.num_epochs = 32
         self.batch_size = 128
         # 每句话处理成的长度,多退少补
         self.pad_size = 32
@@ -49,7 +49,7 @@ class Config(object):
         # lstm隐藏层数量,就是普通情况下,一个lstm层输出的向量维度
         self.hidden_size = 128
         # lstm层数,lstm可以层层累上去,第一层各个词的输出,可以作为第二层的输入
-        self.num_layers = 2
+        self.num_layers = 3
 
 
 '''Recurrent Neural Network for Text Classification with Multi-Task Learning'''
@@ -58,17 +58,28 @@ class Config(object):
 class Model(nn.Module):
     def __init__(self, config):
         super(Model, self).__init__()
+        # embedding层做词向量转换
+        # 如果本地有embedding文件,就掉pytorch自带的方法,加载本地的文件
         if config.embedding_pretrained is not None:
+            # freeze=False 不冻住,等下一起参与训练
             self.embedding = nn.Embedding.from_pretrained(config.embedding_pretrained, freeze=False)
         else:
             self.embedding = nn.Embedding(config.n_vocab, config.embed, padding_idx=config.n_vocab - 1)
+        # lstm
         self.lstm = nn.LSTM(config.embed, config.hidden_size, config.num_layers,
-                            bidirectional=True, batch_first=True, dropout=config.dropout)
+                            # 是否是双向的,如果是双向的话,lstm会从前往后做一次传播,然后再从后往前做一次传播,这样本来是如果是输出128维的向量的话,就变成输出256维的向量,特征更多了
+                            bidirectional=True
+                            # pytorch都是batchfirst的
+                            , batch_first=True
+                            , dropout=config.dropout)
+        # 最后用一个FC算出各个类别的值,config.hidden_size * 2是因为前面的bidirectional=True
         self.fc = nn.Linear(config.hidden_size * 2, config.num_classes)
 
     def forward(self, x):
         x, _ = x
-        out = self.embedding(x)  # [batch_size, seq_len, embeding]=[128, 32, 300]
+        # 做完embedding后,输入就变成了[batch_size, seq_len, embeding]=[128, 32, 300]
+        out = self.embedding(x)
         out, _ = self.lstm(out)
-        out = self.fc(out[:, -1, :])  # 句子最后时刻的 hidden state
+        # 因为是做分类任务,就之后句子序列最后一个词的输出结果,所以是[:,-1,:]
+        out = self.fc(out[:, -1, :])
         return out

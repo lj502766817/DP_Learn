@@ -26,23 +26,31 @@ def init_network(model, method='xavier', exclude='embedding', seed=123):
                 pass
 
 
-def train(config, model, train_iter, dev_iter, test_iter,writer):
+def train(config, model, train_iter, dev_iter, test_iter, writer):
     start_time = time.time()
+    # 训练模式
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
-
-    # 学习率指数衰减，每次epoch：学习率 = gamma * 学习率
+    # 学习率指数衰减，每次epoch：学习率 = gamma * 学习率,先不用这个了
     # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
-    total_batch = 0  # 记录进行到多少batch
+
+    # 记录进行到多少batch
+    total_batch = 0
+    # 最好的那次损失值
     dev_best_loss = float('inf')
-    last_improve = 0  # 记录上次验证集loss下降的batch数
-    flag = False  # 记录是否很久没有效果提升
-    #writer = SummaryWriter(log_dir=config.log_path + '/' + time.strftime('%m-%d_%H.%M', time.localtime()))
+    # 损失值最好的那次做了多少个batch
+    last_improve = 0
+    # 记录是否很久没有效果提升
+    flag = False
+    # 日志的东西,先不用
+    # writer = SummaryWriter(log_dir=config.log_path + '/' + time.strftime('%m-%d_%H.%M', time.localtime()))
     for epoch in range(config.num_epochs):
         print('Epoch [{}/{}]'.format(epoch + 1, config.num_epochs))
-        # scheduler.step() # 学习率衰减
+        # 学习率衰减
+        # scheduler.step()
         for i, (trains, labels) in enumerate(train_iter):
-            #print (trains[0].shape)
+            # print (trains[0].shape)
+            # 做前向传播
             outputs = model(trains)
             model.zero_grad()
             loss = F.cross_entropy(outputs, labels)
@@ -52,8 +60,11 @@ def train(config, model, train_iter, dev_iter, test_iter,writer):
                 # 每多少轮输出在训练集和验证集上的效果
                 true = labels.data.cpu()
                 predic = torch.max(outputs.data, 1)[1].cpu()
+                # 用sklearn提供的包去算下准确率
                 train_acc = metrics.accuracy_score(true, predic)
+                # 看看验证集的结果
                 dev_acc, dev_loss = evaluate(config, model, dev_iter)
+                # 如果效果更好了,就更新下最好的那次
                 if dev_loss < dev_best_loss:
                     dev_best_loss = dev_loss
                     torch.save(model.state_dict(), config.save_path)
@@ -68,6 +79,7 @@ def train(config, model, train_iter, dev_iter, test_iter,writer):
                 writer.add_scalar("loss/dev", dev_loss, total_batch)
                 writer.add_scalar("acc/train", train_acc, total_batch)
                 writer.add_scalar("acc/dev", dev_acc, total_batch)
+                # 切回训练模式
                 model.train()
             total_batch += 1
             if total_batch - last_improve > config.require_improvement:
@@ -78,6 +90,7 @@ def train(config, model, train_iter, dev_iter, test_iter,writer):
         if flag:
             break
     writer.close()
+    # 所有的epoch做完了就看看测试集的效果
     test(config, model, test_iter)
 
 
@@ -102,6 +115,7 @@ def evaluate(config, model, data_iter, test=False):
     loss_total = 0
     predict_all = np.array([], dtype=int)
     labels_all = np.array([], dtype=int)
+    # 验证集就不用梯度下降了
     with torch.no_grad():
         for texts, labels in data_iter:
             outputs = model(texts)
@@ -114,6 +128,7 @@ def evaluate(config, model, data_iter, test=False):
 
     acc = metrics.accuracy_score(labels_all, predict_all)
     if test:
+        # 测试集的话,就看看最后的报告,和混淆矩阵
         report = metrics.classification_report(labels_all, predict_all, target_names=config.class_list, digits=4)
         confusion = metrics.confusion_matrix(labels_all, predict_all)
         return acc, loss_total / len(data_iter), report, confusion
