@@ -59,7 +59,7 @@ dataloaders = {x: torch_data_util.DataLoader(image_datasets[x], batch_size=batch
                ['train', 'valid']}
 # 看一下训练集和验证集的数据量
 dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'valid']}
-# 样本的labels,这里的排序方式并不是自然排序
+# 注意!样本的labels,这里的排序方式并不是自然排序,所以我们预测得到的label实际上不是我们文件夹分类的值,而是重排序后的classes的index
 class_names = image_datasets['train'].classes
 
 # 打印看看
@@ -280,6 +280,7 @@ model_ft, val_acc_history, train_acc_history, valid_losses, train_losses, LRs = 
 
 # 做测试
 # 得到一个batch的测试数据,这里就用验证集去做做测试集了
+valid_class_names = image_datasets['valid'].classes
 dataiter = iter(dataloaders['valid'])
 images, labels = dataiter.next()
 
@@ -314,6 +315,8 @@ rows = 2
 for idx in range(columns * rows):
     ax = fig.add_subplot(rows, columns, idx + 1, xticks=[], yticks=[])
     plt.imshow(im_convert(images[idx]))
-    ax.set_title("{} ({})".format(cat_to_name[str(preds[idx])], cat_to_name[str(labels[idx].item())]),
-                 color=("green" if cat_to_name[str(preds[idx])] == cat_to_name[str(labels[idx].item())] else "red"))
+    ax.set_title(
+        "{} ({})".format(str(valid_class_names[preds[idx]]) + '-' + cat_to_name[str(valid_class_names[preds[idx]])],
+                         cat_to_name[str(valid_class_names[labels[idx].item()])]),
+        color=("green" if str(preds[idx]) == str(labels[idx].item()) else "red"))
 plt.show()
