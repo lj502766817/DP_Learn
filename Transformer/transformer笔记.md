@@ -13,3 +13,10 @@
 * transformer的self-attention是并行计算的,输入和输出都是相同的,都是同时被计算出来的,所以在时间上是大大加快的
 
 #### self-attention机制
+
+因为有语境这个条件了,那么一句话中的每个词对应的token现在不能单独考虑这个词本身了,每个token的组成都需要结合上下文的的各个词.
+
+假设现在有一段话: $我吃西瓜$,通过语料表将它转换成token之后是: $[A,B,C,D]$,在传统的rnn中所有的token就这样定死了,这样就丢掉了语境.但是在transformer里,会将这个token进行进一步的加工(encoder): $A^\prime=w_1A+w_2B+w_3C+w_4D$,得到新的token: $[A^\prime,B^\prime,C^\prime,D^\prime]$,这个新的token就具有了上下文的信息.
+
+现在的问题就变成了这个 $w$,怎么得到
+
