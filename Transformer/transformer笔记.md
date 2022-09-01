@@ -42,3 +42,9 @@ $$
 
 #### 残差连接和归一化
 在每一个block做完之后,将原始的输入数据与做完encoder之后的结果相加,进行残差链接,类似于resnet.并且将做完残连接后的数据做一个Layer Normalization(在每一层对单个样本的所有神经元节点进行规范化)
+
+#### attention机制(decoder)
+
+一个input经过encoder之后会得到一个token的序列,到实际做任务的时候,可能需要做一个attention(decoder).这里用机器翻译做例子说明.做翻译时,实际是一个词一个词的翻译,这时,我们首先是也对output的第一个词做成token,此时因为是翻译任务,我们就认为后面的词是不知道的,需要对后面的词做一个mask,然后,我们就用第一个词的token的Q向量一个一个的去查询input序列的各个K向量,得到权重然后通过V向量计算output第一个词经过attention机制后的token,得到第一个词的实际token后,然后得到第二个词,然后第二个词不仅需要跟input做attention,还要与第一个词做self-attention.这个就是decoder.
+
+decoder之后的结果我们再做linear和softmax,就能得到一个预测的机器翻译的序列了
