@@ -32,16 +32,24 @@ def get_testing():
 
 
 def get_b16_config():
-    """Returns the ViT-B/16 configuration."""
+    """Returns the ViT-B/16 configuration.ViT-Base模型,参数数量86M"""
     config = ml_collections.ConfigDict()
+    # 图片切片大小是16*16
     config.patches = ml_collections.ConfigDict({'size': (16, 16)})
+    # token向量的长度
     config.hidden_size = 768
     config.transformer = ml_collections.ConfigDict()
+    # encoder中MLP Block第一全连接的结点数,是hidden_size的4倍
     config.transformer.mlp_dim = 3072
+    # 12头
     config.transformer.num_heads = 12
+    # encoder 的堆叠层数
     config.transformer.num_layers = 12
+    # 做完attention之后的dropout概率
     config.transformer.attention_dropout_rate = 0.0
+    # 做完全连接层后的dropout概率
     config.transformer.dropout_rate = 0.1
+    # 向量标识,后续构建模型的时候要用到
     config.classifier = 'token'
     config.representation_size = None
     return config

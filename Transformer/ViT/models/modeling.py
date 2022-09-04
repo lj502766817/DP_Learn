@@ -21,9 +21,7 @@ import configs
 
 from .modeling_resnet import ResNetV2
 
-
 logger = logging.getLogger(__name__)
-
 
 ATTENTION_Q = "MultiHeadDotProductAttention_1/query"
 ATTENTION_K = "MultiHeadDotProductAttention_1/key"
@@ -143,6 +141,7 @@ class Mlp(nn.Module):
 class Embeddings(nn.Module):
     """Construct the embeddings from patch, position embeddings.
     """
+
     def __init__(self, config, img_size, in_channels=3):
         super(Embeddings, self).__init__()
         self.hybrid = None
@@ -166,7 +165,7 @@ class Embeddings(nn.Module):
                                        out_channels=config.hidden_size,
                                        kernel_size=patch_size,
                                        stride=patch_size)
-        self.position_embeddings = nn.Parameter(torch.zeros(1, n_patches+1, config.hidden_size))
+        self.position_embeddings = nn.Parameter(torch.zeros(1, n_patches + 1, config.hidden_size))
         self.cls_token = nn.Parameter(torch.zeros(1, 1, config.hidden_size))
 
         self.dropout = Dropout(config.transformer["dropout_rate"])
@@ -261,15 +260,19 @@ class Block(nn.Module):
             self.ffn_norm.weight.copy_(np2th(weights[pjoin(ROOT, MLP_NORM, "scale")]))
             self.ffn_norm.bias.copy_(np2th(weights[pjoin(ROOT, MLP_NORM, "bias")]))
             """
-            query_weight = np2th(weights[ROOT + "/" + ATTENTION_Q + "/" + "kernel"]).view(self.hidden_size, self.hidden_size).t()
-            key_weight = np2th(weights[ROOT + "/" +  ATTENTION_K+ "/" + "kernel"]).view(self.hidden_size, self.hidden_size).t()
-            value_weight = np2th(weights[ROOT + "/" +  ATTENTION_V+"/" + "kernel"]).view(self.hidden_size, self.hidden_size).t()
-            out_weight = np2th(weights[ROOT + "/" + ATTENTION_OUT+"/" + "kernel"]).view(self.hidden_size, self.hidden_size).t()
+            query_weight = np2th(weights[ROOT + "/" + ATTENTION_Q + "/" + "kernel"]).view(self.hidden_size,
+                                                                                          self.hidden_size).t()
+            key_weight = np2th(weights[ROOT + "/" + ATTENTION_K + "/" + "kernel"]).view(self.hidden_size,
+                                                                                        self.hidden_size).t()
+            value_weight = np2th(weights[ROOT + "/" + ATTENTION_V + "/" + "kernel"]).view(self.hidden_size,
+                                                                                          self.hidden_size).t()
+            out_weight = np2th(weights[ROOT + "/" + ATTENTION_OUT + "/" + "kernel"]).view(self.hidden_size,
+                                                                                          self.hidden_size).t()
 
-            query_bias = np2th(weights[ROOT + "/" +  ATTENTION_Q+"/" + "bias"]).view(-1)
-            key_bias = np2th(weights[ROOT + "/" +  ATTENTION_K+"/" + "bias"]).view(-1)
-            value_bias = np2th(weights[ROOT + "/" +  ATTENTION_V+"/" + "bias"]).view(-1)
-            out_bias = np2th(weights[ROOT + "/" +  ATTENTION_OUT+"/" + "bias"]).view(-1)
+            query_bias = np2th(weights[ROOT + "/" + ATTENTION_Q + "/" + "bias"]).view(-1)
+            key_bias = np2th(weights[ROOT + "/" + ATTENTION_K + "/" + "bias"]).view(-1)
+            value_bias = np2th(weights[ROOT + "/" + ATTENTION_V + "/" + "bias"]).view(-1)
+            out_bias = np2th(weights[ROOT + "/" + ATTENTION_OUT + "/" + "bias"]).view(-1)
 
             self.attn.query.weight.copy_(query_weight)
             self.attn.key.weight.copy_(key_weight)
@@ -280,20 +283,20 @@ class Block(nn.Module):
             self.attn.value.bias.copy_(value_bias)
             self.attn.out.bias.copy_(out_bias)
 
-            mlp_weight_0 = np2th(weights[ROOT + "/" +  FC_0+"/" + "kernel"]).t()
-            mlp_weight_1 = np2th(weights[ROOT + "/" +  FC_1+"/" + "kernel"]).t()
-            mlp_bias_0 = np2th(weights[ROOT + "/" +  FC_0+"/" +"bias"]).t()
-            mlp_bias_1 = np2th(weights[ROOT + "/" +  FC_1+"/" +"bias"]).t()
+            mlp_weight_0 = np2th(weights[ROOT + "/" + FC_0 + "/" + "kernel"]).t()
+            mlp_weight_1 = np2th(weights[ROOT + "/" + FC_1 + "/" + "kernel"]).t()
+            mlp_bias_0 = np2th(weights[ROOT + "/" + FC_0 + "/" + "bias"]).t()
+            mlp_bias_1 = np2th(weights[ROOT + "/" + FC_1 + "/" + "bias"]).t()
 
             self.ffn.fc1.weight.copy_(mlp_weight_0)
             self.ffn.fc2.weight.copy_(mlp_weight_1)
             self.ffn.fc1.bias.copy_(mlp_bias_0)
             self.ffn.fc2.bias.copy_(mlp_bias_1)
 
-            self.attention_norm.weight.copy_(np2th(weights[ROOT + "/" +  ATTENTION_NORM+"/" + "scale"]))
-            self.attention_norm.bias.copy_(np2th(weights[ROOT + "/" + ATTENTION_NORM+"/" +  "bias"]))
-            self.ffn_norm.weight.copy_(np2th(weights[ROOT + "/" + MLP_NORM+"/" +  "scale"]))
-            self.ffn_norm.bias.copy_(np2th(weights[ROOT + "/" + MLP_NORM+"/" +  "bias"]))
+            self.attention_norm.weight.copy_(np2th(weights[ROOT + "/" + ATTENTION_NORM + "/" + "scale"]))
+            self.attention_norm.bias.copy_(np2th(weights[ROOT + "/" + ATTENTION_NORM + "/" + "bias"]))
+            self.ffn_norm.weight.copy_(np2th(weights[ROOT + "/" + MLP_NORM + "/" + "scale"]))
+            self.ffn_norm.bias.copy_(np2th(weights[ROOT + "/" + MLP_NORM + "/" + "bias"]))
 
 
 class Encoder(nn.Module):
@@ -333,13 +336,16 @@ class VisionTransformer(nn.Module):
     def __init__(self, config, img_size=224, num_classes=21843, zero_head=False, vis=False):
         super(VisionTransformer, self).__init__()
         self.num_classes = num_classes
+        # 最后全连接层初始值为0
         self.zero_head = zero_head
         self.classifier = config.classifier
 
         self.transformer = Transformer(config, img_size, vis)
+        # 最后经过多头之后,最后输出的head层
         self.head = Linear(config.hidden_size, num_classes)
 
     def forward(self, x, labels=None):
+        """前向传播"""
         x, attn_weights = self.transformer(x)
         print(x.shape)
         logits = self.head(x[:, 0])
@@ -397,7 +403,8 @@ class VisionTransformer(nn.Module):
                     unit.load_from(weights, n_block=uname)
 
             if self.transformer.embeddings.hybrid:
-                self.transformer.embeddings.hybrid_model.root.conv.weight.copy_(np2th(weights["conv_root/kernel"], conv=True))
+                self.transformer.embeddings.hybrid_model.root.conv.weight.copy_(
+                    np2th(weights["conv_root/kernel"], conv=True))
                 gn_weight = np2th(weights["gn_root/scale"]).view(-1)
                 gn_bias = np2th(weights["gn_root/bias"]).view(-1)
                 self.transformer.embeddings.hybrid_model.root.gn.weight.copy_(gn_weight)
