@@ -15,6 +15,7 @@ transformer里进行处理.这样,这个cls向量就有个这个图像数据的�
 位置编码在处理图像数据的时候是必须的,因为要构成一个图像数据序列.但是如何编码,通过实验发现
 ,2D(行,列数据)的编码和1D(顺序数据)的编码对结果没太大影响.
 
+![ViT](https://user-images.githubusercontent.com/28779173/188341225-608836f5-c439-4c88-b71f-b27c894f1e5b.png)
 
 ### TNT(Transformer in Transformer)
 前面说的vit是针对图像数据做的一个一个patch进行建模,但是patch里面更小的细节是忽略掉了的,
@@ -26,3 +27,4 @@ transformer里进行处理.这样,这个cls向量就有个这个图像数据的�
 序列做成4*4的,就是本身一个16*16的patch,给他继续分化成4*4的一个更小的patch序列,对这个超像素
 序列继续加位置编码,做transformer,最后通过FC把输出向量的大小做成和外层的transformer的输入
 向量大小一样,最后把两个向量相加,再一起做外层的transformer.
+
