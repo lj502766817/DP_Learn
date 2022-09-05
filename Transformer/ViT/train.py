@@ -13,7 +13,7 @@ import torch
 import torch.distributed as dist
 
 from tqdm import tqdm
-from torch.utils.tensorboard import SummaryWriter
+from tensorboardX import SummaryWriter
 # from apex import amp
 # from apex.parallel import DistributedDataParallel as DDP
 
@@ -72,6 +72,7 @@ def setup(args):
     model = VisionTransformer(config, args.img_size, zero_head=True, num_classes=num_classes)
     # 加载预训练参数
     model.load_from(np.load(args.pretrained_dir))
+    # 丢到GPU里
     model.to(args.device)
     num_params = count_parameters(model)
 
@@ -148,20 +149,23 @@ def valid(args, model, writer, test_loader, global_step):
 
 
 def train(args, model):
-    """ Train the model """
+    """ 训练模型 """
     if args.local_rank in [-1, 0]:
         os.makedirs(args.output_dir, exist_ok=True)
         writer = SummaryWriter(log_dir=os.path.join("logs", args.name))
 
+    # 实际batch大小
     args.train_batch_size = args.train_batch_size // args.gradient_accumulation_steps
 
-    # Prepare dataset
+    # 加载数据
     train_loader, test_loader = get_loader(args)
 
-    # Prepare optimizer and scheduler
+    # 优化器和学习率衰减
     optimizer = torch.optim.SGD(model.parameters(),
                                 lr=args.learning_rate,
+                                # 动量优化参数,可以抑制震荡
                                 momentum=0.9,
+                                # 自带的学习率衰减
                                 weight_decay=args.weight_decay)
     t_total = args.num_steps
     if args.decay_type == "cosine":
@@ -292,8 +296,15 @@ def main():
     # 分布式训练的参数
     parser.add_argument("--local_rank", type=int, default=-1,
                         help="local_rank for distributed training on gpus")
+    # 随机种子
     parser.add_argument('--seed', type=int, default=42,
                         help="random seed for initialization")
+
+    # 显存重计算的技巧，很方便很实用，默认为1，如果设置为n，则我们forward n次，得到n个loss的累加后再更新参数。
+    # 显存重计算是典型的用时间换空间，比如我们希望跑256的大点的batch，不希望跑32这样的小batch，因为觉得小batch不稳定，会影响模型效果，但是gpu显存又无法放下256的batchsize
+    # 的数据，此时我们就可以进行显存重计算，将这个参数设置为256/32=8即可。用torch实现就是forward，计算loss 8次，然后再optimizer.step() 注意，当我们设置了显存重计算的功能，则eval
+    # steps之类的参数自动进行相应的调整，比如我们设置这个参数前，256的batch，我们希望10个batch评估一次，即10个steps进行一次eval，当时改为batch size=32并且
+    # gradient_accumulation_steps=8，则默认trainer会 8*10=80个steps 进行一次eval。
     parser.add_argument('--gradient_accumulation_steps', type=int, default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument('--fp16', action='store_true',

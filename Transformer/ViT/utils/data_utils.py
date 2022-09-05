@@ -5,14 +5,13 @@ import torch
 from torchvision import transforms, datasets
 from torch.utils.data import DataLoader, RandomSampler, DistributedSampler, SequentialSampler
 
-
 logger = logging.getLogger(__name__)
 
 
 def get_loader(args):
     if args.local_rank not in [-1, 0]:
         torch.distributed.barrier()
-
+    
     transform_train = transforms.Compose([
         transforms.RandomResizedCrop((args.img_size, args.img_size), scale=(0.05, 1.0)),
         transforms.ToTensor(),
@@ -46,6 +45,7 @@ def get_loader(args):
     if args.local_rank == 0:
         torch.distributed.barrier()
 
+    # 取样方式
     train_sampler = RandomSampler(trainset) if args.local_rank == -1 else DistributedSampler(trainset)
     test_sampler = SequentialSampler(testset)
     train_loader = DataLoader(trainset,

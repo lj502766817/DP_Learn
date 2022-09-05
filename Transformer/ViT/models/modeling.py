@@ -17,7 +17,7 @@ from torch.nn import CrossEntropyLoss, Dropout, Softmax, Linear, Conv2d, LayerNo
 from torch.nn.modules.utils import _pair
 from scipy import ndimage
 
-import configs
+from . import configs
 
 from .modeling_resnet import ResNetV2
 
@@ -66,19 +66,24 @@ class Attention(nn.Module):
         self.softmax = Softmax(dim=-1)
 
     def transpose_for_scores(self, x):
+        # 将q,k,v向量分成12头(16,197,768)->(16,197,12,64)
         new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
         print(new_x_shape)
         x = x.view(*new_x_shape)
         print(x.shape)
+        # 重新整理矩阵,变成16个样本,每个样本分成12头,每个头的序列长是197,每个序列里的token是64维
         print(x.permute(0, 2, 1, 3).shape)
         return x.permute(0, 2, 1, 3)
 
     def forward(self, hidden_states):
         print(hidden_states.shape)
+        # 构建每个token的query向量
         mixed_query_layer = self.query(hidden_states)
         print(mixed_query_layer.shape)
+        # 构建每个token的key向量
         mixed_key_layer = self.key(hidden_states)
         print(mixed_key_layer.shape)
+        # 构建每个token的value向量
         mixed_value_layer = self.value(hidden_states)
         print(mixed_value_layer.shape)
 
@@ -89,24 +94,28 @@ class Attention(nn.Module):
         value_layer = self.transpose_for_scores(mixed_value_layer)
         print(value_layer.shape)
 
+        # 将q和k内积计算权重值,(197,64)*(64,197)得到每个序列与其他197个序列的注意力值
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
         print(attention_scores.shape)
+        # 削减一下向量维度大小带来的影响
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         print(attention_scores.shape)
         attention_probs = self.softmax(attention_scores)
         print(attention_probs.shape)
+        # 按权重计算比例
         weights = attention_probs if self.vis else None
         attention_probs = self.attn_dropout(attention_probs)
         print(attention_probs.shape)
 
         context_layer = torch.matmul(attention_probs, value_layer)
         print(context_layer.shape)
+        # 重新整理结构(16,12,197,64)->(16,197,12,64)
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
         print(context_layer.shape)
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
-        context_layer = context_layer.view(*new_context_layer_shape)
+        context_layer = context_layer.view(*new_context_layer_shape)  # 将多头的数据合并起来
         print(context_layer.shape)
-        attention_output = self.out(context_layer)
+        attention_output = self.out(context_layer)  # 通过全连接整合一下特征
         print(attention_output.shape)
         attention_output = self.proj_dropout(attention_output)
         print(attention_output.shape)
@@ -161,31 +170,42 @@ class Embeddings(nn.Module):
             self.hybrid_model = ResNetV2(block_units=config.resnet.num_layers,
                                          width_factor=config.resnet.width_factor)
             in_channels = self.hybrid_model.width * 16
+        # 把图像数据做成一个个patch的序列,把一个224*224的图像,切成了多个16*16的patch,并且每个patch都是一个768维的向量
         self.patch_embeddings = Conv2d(in_channels=in_channels,
                                        out_channels=config.hidden_size,
                                        kernel_size=patch_size,
                                        stride=patch_size)
         self.position_embeddings = nn.Parameter(torch.zeros(1, n_patches + 1, config.hidden_size))
+        # 预置分类任务的cls_token,最后是用这个cls_token去做分类
+        # 因为后面会把每个patch做成768维向量,所以这里预置的一个token是(1,1,768),第一个表示是一个数据,第二个表示这是序列里的一个patch,
         self.cls_token = nn.Parameter(torch.zeros(1, 1, config.hidden_size))
 
         self.dropout = Dropout(config.transformer["dropout_rate"])
 
     def forward(self, x):
+        # 原始图片数据(16,3,224,224)
         print(x.shape)
+        # 一个批次16个数据,先缓存下来
         B = x.shape[0]
+        # 因为一个batch是16个数据,所以把cls_token扩展成16,每个数据分一个cls_token
         cls_tokens = self.cls_token.expand(B, -1, -1)
         print(cls_tokens.shape)
         if self.hybrid:
             x = self.hybrid_model(x)
         x = self.patch_embeddings(x)
+        # 每个样本都被分成了(768,14,14)的特征图,即把原来的图像数据切成了一个个patch
         print(x.shape)
+        # 把特征图拉平,这样特征图就变成了一个具有14*14=196个token,每个token都是768维的一个特征序列
         x = x.flatten(2)
         print(x.shape)
+        # 把序列长度和token长度换一下(16,196,768),这样就是一个batch里有16个样本,每个样本都是一个长度为196的序列,序列里的每个token都是768维
         x = x.transpose(-1, -2)
         print(x.shape)
+        # 把cls_token加上去
         x = torch.cat((cls_tokens, x), dim=1)
         print(x.shape)
 
+        # 加入位置编码的数据
         embeddings = x + self.position_embeddings
         print(embeddings.shape)
         embeddings = self.dropout(embeddings)
@@ -204,9 +224,12 @@ class Block(nn.Module):
 
     def forward(self, x):
         print(x.shape)
+        # 将原始数据缓存一下,后面做残差连接用
         h = x
+        # 做LN,层标准化
         x = self.attention_norm(x)
         print(x.shape)
+        # multi-head Attention
         x, weights = self.attn(x)
         x = x + h
         print(x.shape)
@@ -312,7 +335,7 @@ class Encoder(nn.Module):
     def forward(self, hidden_states):
         print(hidden_states.shape)
         attn_weights = []
-        for layer_block in self.layer:
+        for layer_block in self.layer:  # 12层self-attention的堆叠
             hidden_states, weights = layer_block(hidden_states)
             if self.vis:
                 attn_weights.append(weights)
@@ -327,8 +350,9 @@ class Transformer(nn.Module):
         self.encoder = Encoder(config, vis)
 
     def forward(self, input_ids):
+        # 输入一个图片数据(16,3,224,224),将图片数据去做embedding
         embedding_output = self.embeddings(input_ids)
-        encoded, attn_weights = self.encoder(embedding_output)
+        encoded, attn_weights = self.encoder(embedding_output)  # 将已经做成patch的数据,进行encoder
         return encoded, attn_weights
 
 
@@ -346,8 +370,10 @@ class VisionTransformer(nn.Module):
 
     def forward(self, x, labels=None):
         """前向传播"""
+        # 先做self-attention
         x, attn_weights = self.transformer(x)
         print(x.shape)
+        # 然后做FC输出
         logits = self.head(x[:, 0])
         print(logits.shape)
 
