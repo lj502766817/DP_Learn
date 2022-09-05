@@ -113,9 +113,11 @@ class Attention(nn.Module):
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
         print(context_layer.shape)
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
-        context_layer = context_layer.view(*new_context_layer_shape)  # 将多头的数据合并起来
+        # 将多头的数据合并起来
+        context_layer = context_layer.view(*new_context_layer_shape)
         print(context_layer.shape)
-        attention_output = self.out(context_layer)  # 通过全连接整合一下特征
+        # 通过全连接整合一下特征
+        attention_output = self.out(context_layer)
         print(attention_output.shape)
         attention_output = self.proj_dropout(attention_output)
         print(attention_output.shape)
@@ -231,15 +233,16 @@ class Block(nn.Module):
         print(x.shape)
         # multi-head Attention
         x, weights = self.attn(x)
+        # 进行残差连接
         x = x + h
         print(x.shape)
 
-        h = x
-        x = self.ffn_norm(x)
+        h = x  # 再次备份数据,还要做一次残差连接
+        x = self.ffn_norm(x)  # 第一次残差连接后的结果再做一次LN
         print(x.shape)
-        x = self.ffn(x)
+        x = self.ffn(x)  # MLP层,就是一个两层的感知机,主要是把cls_token过两层感知机,最后用来分类用
         print(x.shape)
-        x = x + h
+        x = x + h  # 再过一层残差连接
         print(x.shape)
         return x, weights
 
@@ -335,10 +338,12 @@ class Encoder(nn.Module):
     def forward(self, hidden_states):
         print(hidden_states.shape)
         attn_weights = []
-        for layer_block in self.layer:  # 12层self-attention的堆叠
+        for layer_block in self.layer:
+            # 12层self-attention的堆叠
             hidden_states, weights = layer_block(hidden_states)
             if self.vis:
                 attn_weights.append(weights)
+        # 把多次堆叠的结果最后过一个LN
         encoded = self.encoder_norm(hidden_states)
         return encoded, attn_weights
 
@@ -352,7 +357,8 @@ class Transformer(nn.Module):
     def forward(self, input_ids):
         # 输入一个图片数据(16,3,224,224),将图片数据去做embedding
         embedding_output = self.embeddings(input_ids)
-        encoded, attn_weights = self.encoder(embedding_output)  # 将已经做成patch的数据,进行encoder
+        # 将已经做成patch的数据,进行encoder
+        encoded, attn_weights = self.encoder(embedding_output)
         return encoded, attn_weights
 
 
@@ -373,12 +379,12 @@ class VisionTransformer(nn.Module):
         # 先做self-attention
         x, attn_weights = self.transformer(x)
         print(x.shape)
-        # 然后做FC输出
+        # 取出cls_token向量,此时cls已经学习到了整个图像的特征,用cls来做分类任务
         logits = self.head(x[:, 0])
         print(logits.shape)
 
         if labels is not None:
-            loss_fct = CrossEntropyLoss()
+            loss_fct = CrossEntropyLoss()  # 交叉熵计算损失
             loss = loss_fct(logits.view(-1, self.num_classes), labels.view(-1))
             return loss
         else:

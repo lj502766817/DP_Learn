@@ -206,6 +206,7 @@ def train(args, model):
         for step, batch in enumerate(epoch_iterator):
             batch = tuple(t.to(args.device) for t in batch)
             x, y = batch
+            # 前向传播计算损失
             loss = model(x, y)
 
             if args.gradient_accumulation_steps > 1:
@@ -214,6 +215,7 @@ def train(args, model):
             #     with amp.scale_loss(loss, optimizer) as scaled_loss:
             #         scaled_loss.backward()
             else:
+                # 反向传播更新参数
                 loss.backward()
 
             if (step + 1) % args.gradient_accumulation_steps == 0:
