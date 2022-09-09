@@ -25,6 +25,7 @@ swin-transformer是在ViT的基础上进行的变种,相较与原始的ViT,swin-
 
 
 
+![mask机制](https://user-images.githubusercontent.com/28779173/189316032-16d37def-2bbd-4206-80ac-8920b8a548c9.jpg)
 
 
 
