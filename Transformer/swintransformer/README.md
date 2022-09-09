@@ -1,4 +1,4 @@
-### SwinTransformer原理说明
+### Swin-Transformer原理说明
 
 swin-transformer是在ViT的基础上进行的变种,相较与原始的ViT,swin-transformer使用了窗口和分层的模式来进行优化.在原始的ViT上,因为一个图像的像素点可能很多,这样想要提取更丰富的特征就会构建一个很长的序列.这样做attention的效率就很慢.但是在swin-transformer中,做了一个类似CNN网络的事,在每一层对特征图使用一个个窗口去做分解,对每个窗口来做attention,这样针对窗口的attention效率就更高.并且基于窗口的分层,也能做到类似CNN网络里感受野增强的效果
 
@@ -28,22 +28,9 @@ swin-transformer是在ViT的基础上进行的变种,相较与原始的ViT,swin-
 
 #### PatchMerging
 
+在做一层一层的堆叠的时候,swin-transformer有一个类似CNN池化层的东西,两者的目的一致,但是做法是不一样的.PatchMerging是对特征图的长和宽都间隔一个单位取值,这样就将原始(w,h,c)的特征图变成了(w/2,h/2,4c)的特征图了.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+#### Swin-Transformer整体架构图
 
 ![整体架构](https://user-images.githubusercontent.com/28779173/189150418-1a4e36ca-eb98-44f4-a6e8-ac0027466dde.png)
-
 
