@@ -56,3 +56,5 @@ $$ \vec{Z}=softmax({{\vec Q \cdot \vec K}\over \sqrt{d_k}})\cdot \vec{V} $$
 .这里用机器翻译做例子说明.做翻译时,实际是一个词一个词的翻译,这时,我们首先是也对output的第一个词做成token,此时因为是翻译任务,我们就认为后面的词是不知道的,需要对后面的词做一个mask,然后,我们就用第一个词的token的Q向量一个一个的去查询input序列的各个K向量,得到权重然后通过V向量计算output第一个词经过attention机制后的token,得到第一个词的实际token后,然后得到第二个词,然后第二个词不仅需要跟input做attention,还要与第一个词做self-attention.这个就是decoder.
 
 decoder之后的结果我们再做linear和softmax,就能得到一个预测的机器翻译的序列了
+
+![transformer](https://user-images.githubusercontent.com/28779173/190123789-dc4335e2-ba6f-4252-abc8-ab962179a89d.jpg)
