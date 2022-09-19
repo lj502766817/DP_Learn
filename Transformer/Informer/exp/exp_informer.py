@@ -62,7 +62,7 @@ class Exp_Informer(Exp_Basic):
     def _get_data(self, flag):
         args = self.args
 
-        data_dict = {
+        data_dict = {  # 不同的数据对应不同的数据集处理类
             'ETTh1': Dataset_ETT_hour,
             'ETTh2': Dataset_ETT_hour,
             'ETTm1': Dataset_ETT_minute,
@@ -76,21 +76,21 @@ class Exp_Informer(Exp_Basic):
         timeenc = 0 if args.embed != 'timeF' else 1
 
         if flag == 'test':
-            shuffle_flag = False;
-            drop_last = True;
-            batch_size = args.batch_size;
+            shuffle_flag = False
+            drop_last = True
+            batch_size = args.batch_size
             freq = args.freq
         elif flag == 'pred':
-            shuffle_flag = False;
-            drop_last = False;
-            batch_size = 1;
+            shuffle_flag = False
+            drop_last = False
+            batch_size = 1
             freq = args.detail_freq
             Data = Dataset_Pred
         else:
-            shuffle_flag = True;
-            drop_last = True;
-            batch_size = args.batch_size;
-            freq = args.freq
+            shuffle_flag = True  # 这里的shuffle不是通常意义上的一个个shuffle,而是一个批次一个批次的shuffle
+            drop_last = True  # 时间序列任务,最后不够一个batch的肯定是要丢掉的
+            batch_size = args.batch_size
+            freq = args.freq  # 时间单位
         data_set = Data(
             root_path=args.root_path,
             data_path=args.data_path,
