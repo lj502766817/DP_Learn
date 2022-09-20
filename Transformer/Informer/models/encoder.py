@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class ConvLayer(nn.Module):
+class ConvLayer(nn.Module):  # 先通过Conv1d来做特征融合,然后通过MaxPool1d来做下采样
     def __init__(self, c_in):
         super(ConvLayer, self).__init__()
         padding = 1 if torch.__version__ >= '1.5.0' else 2
@@ -47,23 +47,23 @@ class EncoderLayer(nn.Module):
             x, x, x,
             attn_mask=attn_mask
         )
-        x = x + self.dropout(new_x)
+        x = x + self.dropout(new_x)  # 这里做了个残差连接
 
         y = x = self.norm1(x)
         y = self.dropout(self.activation(self.conv1(y.transpose(-1, 1))))
         y = self.dropout(self.conv2(y).transpose(-1, 1))
 
-        return self.norm2(x + y), attn
+        return self.norm2(x + y), attn  # 他又做了一次残差连接
 
 
 class Encoder(nn.Module):
     def __init__(self, attn_layers, conv_layers=None, norm_layer=None):
         super(Encoder, self).__init__()
-        self.attn_layers = nn.ModuleList(attn_layers)
+        self.attn_layers = nn.ModuleList(attn_layers)  # encoder里是两层self-attention
         self.conv_layers = nn.ModuleList(conv_layers) if conv_layers is not None else None
         self.norm = norm_layer
 
-    def forward(self, x, attn_mask=None):
+    def forward(self, x, attn_mask=None):  # attn_mask这个任务用不到
         # x [B, L, D]
         attns = []
         if self.conv_layers is not None:
