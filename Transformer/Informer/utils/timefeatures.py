@@ -82,7 +82,7 @@ def time_features_from_frequency_str(freq_str: str) -> List[TimeFeature]:
         Frequency string of the form [multiple][granularity] such as "12H", "5min", "1D" etc.
     """
 
-    features_by_offsets = {
+    features_by_offsets = {  # 根据不同的输入时间特征类型,提不同的时间特征
         offsets.YearEnd: [],
         offsets.QuarterEnd: [MonthOfYear],
         offsets.MonthEnd: [MonthOfYear],
@@ -166,5 +166,7 @@ def time_features(dates, timeenc=1, freq='h'):
         }
         return dates[freq_map[freq.lower()]].values
     if timeenc == 1:  # 按照不同的维度去采集时间的特征,一天中的第几个小时,一个星期里的第几天,等等
+        # 转换下pandas时间格式
         dates = pd.to_datetime(dates.date.values)
+        # 这里是根据穿过来的freq确定要提哪些时间特征,然后将这些时间特征拼起来,最后转换下矩阵形状
         return np.vstack([feat(dates) for feat in time_features_from_frequency_str(freq)]).transpose(1, 0)

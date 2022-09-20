@@ -194,7 +194,7 @@ class Dataset_Custom(Dataset):
     def __init__(self, root_path, flag='train', size=None,
                  features='S', data_path='ETTh1.csv',
                  target='OT', scale=True, inverse=False, timeenc=0, freq='h', cols=None):
-        # size [seq_len, label_len, pred_len]
+        # size [seq_len, label_len, pred_len] 输入序列长度,辅助序列长度,实际预测序列长度
         # info
         if size == None:
             self.seq_len = 24 * 4 * 4
@@ -247,7 +247,7 @@ class Dataset_Custom(Dataset):
         border1 = border1s[self.set_type]
         border2 = border2s[self.set_type]
 
-        if self.features == 'M' or self.features == 'MS':  # 多变量预测的情况
+        if self.features == 'M' or self.features == 'MS':  # 多变量预测的情况,注意论文里实际没有做MS这个多变量预测单变量的超参数
             cols_data = df_raw.columns[1:]
             df_data = df_raw[cols_data]
         elif self.features == 'S':  # 单变量预测的情况
@@ -262,20 +262,20 @@ class Dataset_Custom(Dataset):
 
         df_stamp = df_raw[['date']][border1:border2]  # 把时间转成pandas里的时间类型,专门取特征
         df_stamp['date'] = pd.to_datetime(df_stamp.date)
-        data_stamp = time_features(df_stamp, timeenc=self.timeenc, freq=self.freq)  # TODO:dubug到这里了
+        data_stamp = time_features(df_stamp, timeenc=self.timeenc, freq=self.freq)  # 得到时间的各种特征,输出(24544,4),h是对应4种特征
 
-        self.data_x = data[border1:border2]
+        self.data_x = data[border1:border2]  # 取输入的地方
         if self.inverse:
             self.data_y = df_data.values[border1:border2]
         else:
-            self.data_y = data[border1:border2]
-        self.data_stamp = data_stamp
+            self.data_y = data[border1:border2]  # 取输出的地方
+        self.data_stamp = data_stamp  # 到这里就拿到了需要的全部样本数据了
 
     def __getitem__(self, index):
         s_begin = index
-        s_end = s_begin + self.seq_len
+        s_end = s_begin + self.seq_len  # 序列长度96
         r_begin = s_end - self.label_len
-        r_end = r_begin + self.label_len + self.pred_len
+        r_end = r_begin + self.label_len + self.pred_len  # 拿输入序列的后48个做辅助,然后再拿接着的24个做预测序列,所以实际输入预测是72个长度
 
         seq_x = self.data_x[s_begin:s_end]
         if self.inverse:
@@ -285,7 +285,7 @@ class Dataset_Custom(Dataset):
             seq_y = self.data_y[r_begin:r_end]
         seq_x_mark = self.data_stamp[s_begin:s_end]
         seq_y_mark = self.data_stamp[r_begin:r_end]
-
+        # 返回了输入的数据特征序列和时间特征序列,输出的数据特征序列和时间特征序列
         return seq_x, seq_y, seq_x_mark, seq_y_mark
 
     def __len__(self):

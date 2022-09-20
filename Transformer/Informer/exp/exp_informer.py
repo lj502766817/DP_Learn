@@ -87,8 +87,8 @@ class Exp_Informer(Exp_Basic):
             freq = args.detail_freq
             Data = Dataset_Pred
         else:
-            shuffle_flag = True  # 这里的shuffle不是通常意义上的一个个shuffle,而是一个批次一个批次的shuffle
-            drop_last = True  # 时间序列任务,最后不够一个batch的肯定是要丢掉的
+            shuffle_flag = True
+            drop_last = True  # 时间序列任务,最后不够一个batch就丢了
             batch_size = args.batch_size
             freq = args.freq  # 时间单位
         data_set = Data(
@@ -134,6 +134,7 @@ class Exp_Informer(Exp_Basic):
         return total_loss
 
     def train(self, setting):
+        # 加载数据,得到数据集
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
         test_data, test_loader = self._get_data(flag='test')
@@ -145,12 +146,12 @@ class Exp_Informer(Exp_Basic):
         time_now = time.time()
 
         train_steps = len(train_loader)
-        early_stopping = EarlyStopping(patience=self.args.patience, verbose=True)
+        early_stopping = EarlyStopping(patience=self.args.patience, verbose=True)  # 提前停止策略
 
-        model_optim = self._select_optimizer()
-        criterion = self._select_criterion()
+        model_optim = self._select_optimizer()  # 这里是adam优化器
+        criterion = self._select_criterion()  # MSE
 
-        if self.args.use_amp:
+        if self.args.use_amp:  # linux上再搞这玩意吧
             scaler = torch.cuda.amp.GradScaler()
 
         for epoch in range(self.args.train_epochs):
@@ -277,7 +278,7 @@ class Exp_Informer(Exp_Basic):
         print(batch_x_mark.shape)
         print(batch_y_mark.shape)
 
-        # decoder input
+        # decoder input,用0或者1来做初始化
         if self.args.padding == 0:
             dec_inp = torch.zeros([batch_y.shape[0], self.args.pred_len, batch_y.shape[-1]]).float()
             print(dec_inp.shape)
