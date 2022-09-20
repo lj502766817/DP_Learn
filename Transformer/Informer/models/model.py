@@ -71,13 +71,13 @@ class Informer(nn.Module):
         enc_out = self.enc_embedding(x_enc, x_mark_enc)
         enc_out, attns = self.encoder(enc_out, attn_mask=enc_self_mask)
 
-        print(x_dec.shape)
+        print(enc_out.shape)
         print(x_mark_dec.shape)
-        dec_out = self.dec_embedding(x_dec, x_mark_dec)
+        dec_out = self.dec_embedding(x_dec, x_mark_dec)  # decoder的embedding和encoder一样
         dec_out = self.decoder(dec_out, enc_out, x_mask=dec_self_mask, cross_mask=dec_enc_mask)
         print(dec_out.shape)
         dec_out = self.projection(dec_out)
-        print(dec_out.shape)
+        print(dec_out.shape)  # 最后的结果就是一个72个长度的序列,然后有12个标签
         # dec_out = self.end_conv1(dec_out)
         # dec_out = self.end_conv2(dec_out.transpose(2,1)).transpose(1,2)
         if self.output_attention:
