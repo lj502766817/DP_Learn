@@ -1,12 +1,12 @@
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class DecoderLayer(nn.Module):
+
+class DecoderLayer(nn.Module):  # decoder里先做一轮self-attention,然后再做一轮cross-attention
     def __init__(self, self_attention, cross_attention, d_model, d_ff=None,
                  dropout=0.1, activation="relu"):
         super(DecoderLayer, self).__init__()
-        d_ff = d_ff or 4*d_model
+        d_ff = d_ff or 4 * d_model
         self.self_attention = self_attention
         self.cross_attention = cross_attention
         self.conv1 = nn.Conv1d(in_channels=d_model, out_channels=d_ff, kernel_size=1)
@@ -21,19 +21,20 @@ class DecoderLayer(nn.Module):
         x = x + self.dropout(self.self_attention(
             x, x, x,
             attn_mask=x_mask
-        )[0])
+        )[0])  # self-attention不聊
         x = self.norm1(x)
 
         x = x + self.dropout(self.cross_attention(
-            x, cross, cross,
+            x, cross, cross,  # cross-attention就是用前面做完self-attention的decoder输入得到的Q去和前面encoder后的结果得到的K,V再做attention
             attn_mask=cross_mask
-        )[0])
+        )[0])  # 然后该残差连接就残差连接
 
         y = x = self.norm2(x)
-        y = self.dropout(self.activation(self.conv1(y.transpose(-1,1))))
-        y = self.dropout(self.conv2(y).transpose(-1,1))
+        y = self.dropout(self.activation(self.conv1(y.transpose(-1, 1))))
+        y = self.dropout(self.conv2(y).transpose(-1, 1))
 
-        return self.norm3(x+y)
+        return self.norm3(x + y)
+
 
 class Decoder(nn.Module):
     def __init__(self, layers, norm_layer=None):
