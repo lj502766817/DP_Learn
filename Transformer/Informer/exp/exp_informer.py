@@ -166,7 +166,7 @@ class Exp_Informer(Exp_Basic):
                 model_optim.zero_grad()
                 pred, true = self._process_one_batch(
                     train_data, batch_x, batch_y, batch_x_mark, batch_y_mark)
-                loss = criterion(pred, true)
+                loss = criterion(pred, true)  # 预测值和实际值做个MSE
                 train_loss.append(loss.item())
 
                 if (i + 1) % 100 == 0:
@@ -301,7 +301,7 @@ class Exp_Informer(Exp_Basic):
                 outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
         if self.args.inverse:
             outputs = dataset_object.inverse_transform(outputs)
-        f_dim = -1 if self.args.features == 'MS' else 0
+        f_dim = -1 if self.args.features == 'MS' else 0  # 预测单个值还是多个值
         batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
 
-        return outputs, batch_y
+        return outputs, batch_y  # 最后的输出就把前面用来辅助的48个截出去
