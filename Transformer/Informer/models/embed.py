@@ -8,6 +8,7 @@ class PositionalEmbedding(nn.Module):
     def __init__(self, d_model, max_len=5000):
         super(PositionalEmbedding, self).__init__()
         # Compute the positional encodings once in log space.
+        # 位置编码参考Transformer论文,跟https://www.zhihu.com/question/347678607这个
         pe = torch.zeros(max_len, d_model).float()
         pe.require_grad = False
 
@@ -38,7 +39,7 @@ class TokenEmbedding(nn.Module):
         print(x.shape)  # 32个样本,序列长96,特征数12
         # 这里是先把原始数据转换下维度(channel first)做个1D的卷积,把12个特征做成512个特征,然后把形状还原回去
         x = self.tokenConv(x.permute(0, 2, 1)).transpose(1, 2)
-        print(x.shape)  # TODO:debug到这里了
+        print(x.shape)
         return x
 
 
@@ -66,10 +67,10 @@ class TemporalEmbedding(nn.Module):
     def __init__(self, d_model, embed_type='fixed', freq='h'):
         super(TemporalEmbedding, self).__init__()
 
-        minute_size = 4;
+        minute_size = 4
         hour_size = 24
-        weekday_size = 7;
-        day_size = 32;
+        weekday_size = 7
+        day_size = 32
         month_size = 13
 
         Embed = FixedEmbedding if embed_type == 'fixed' else nn.Embedding
@@ -107,7 +108,7 @@ class TimeFeatureEmbedding(nn.Module):
         self.embed = nn.Linear(d_inp, d_model)
 
     def forward(self, x):
-        return self.embed(x)
+        return self.embed(x)  # 当freq为h时就是一个4->512的fc
 
 
 class DataEmbedding(nn.Module):
