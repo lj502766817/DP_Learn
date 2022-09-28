@@ -3,7 +3,6 @@ openvc图像的基本操作
 """
 import cv2  # opencv读取的格式是BGR
 import matplotlib.pyplot as plt
-import numpy as np
 
 # 打开一个图像数据
 img = cv2.imread('./../data/cat.jpg')
