@@ -51,7 +51,7 @@ for (i, c) in enumerate(refCnts):
     (x, y, w, h) = cv2.boundingRect(c)
     roi = ref[y:y + h, x:x + w]
     roi = cv2.resize(roi, (57, 88))
-    # 每一个数字对应每一个小模板图像
+    # 每一个数字对应每一个小模板图像,后续会用信用卡里拆出来的数字轮廓去一个个的做比对
     digits[i] = roi
 
 # 初始化卷积核
@@ -61,15 +61,17 @@ sqKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
 # 读取输入图像，预处理
 image = cv2.imread(args["image"])
 cv_show('image', image)
+# 固定图像的大小
 image = img_resize(image, width=300)
+# 同样转成灰度图
 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 cv_show('gray', gray)
 
-# 礼帽操作，突出更明亮的区域
+# 礼帽操作,原始输入-开运算(就是现做腐蚀操作,然后再做膨胀操作)，突出更明亮的区域
 tophat = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, rectKernel)
 cv_show('tophat', tophat)
-#
-gradX = cv2.Sobel(tophat, ddepth=cv2.CV_32F, dx=1, dy=0,  # ksize=-1相当于用3*3的
+# ksize=-1相当于用3*3的
+gradX = cv2.Sobel(tophat, ddepth=cv2.CV_32F, dx=1, dy=0,
                   ksize=-1)
 
 gradX = np.absolute(gradX)

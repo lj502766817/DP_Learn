@@ -18,7 +18,7 @@ def sort_contours(cnts, method="left-to-right"):
     return cnts, bounding_boxes
 
 
-# resize图像的大小
+# 按照想要的大小,已以相同的长宽比,resize图像的大小
 def img_resize(image, width=None, height=None, inter=cv2.INTER_AREA):
     dim = None
     (h, w) = image.shape[:2]
