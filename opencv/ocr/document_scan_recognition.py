@@ -4,6 +4,7 @@
 import numpy as np
 import argparse
 import cv2
+from my_utils import sort_contours, img_resize, cv_show
 from PIL import Image
 import pytesseract
 import os
@@ -62,55 +63,36 @@ def four_point_transform(image, pts):
     return warped
 
 
-def resize(image, width=None, height=None, inter=cv2.INTER_AREA):
-    dim = None
-    (h, w) = image.shape[:2]
-    if width is None and height is None:
-        return image
-    if width is None:
-        r = height / float(h)
-        dim = (int(w * r), height)
-    else:
-        r = width / float(w)
-        dim = (width, int(h * r))
-    resized = cv2.resize(image, dim, interpolation=inter)
-    return resized
-
-
 # 读取输入
 image = cv2.imread(args["image"])
-# 坐标也会相同变化
-ratio = image.shape[0] / 500.0
+# 后面要对图片做压缩,这里先记录一下压缩得比例
+ratio = image.shape[0] / 1500.0
 orig = image.copy()
+# 改变图片大小
+image = img_resize(orig, height=1500)
 
-image = resize(orig, height=500)
-
-# 预处理
+# 做预处理,改灰度图,做高斯滤波,做边缘检测
 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 gray = cv2.GaussianBlur(gray, (5, 5), 0)
 edged = cv2.Canny(gray, 75, 200)
 
 # 展示预处理结果
 print("STEP 1: 边缘检测")
-cv2.imshow("Image", image)
-cv2.imshow("Edged", edged)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+cv_show("img", image)
+cv_show("gray-Edged", np.hstack((gray, edged)))
 
-# 轮廓检测
+# 对找到的边缘做轮廓检测
 cnts = cv2.findContours(edged.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)[1]
+# 取面积前五的轮廓,因为很小的一般是在文档里面的
 cnts = sorted(cnts, key=cv2.contourArea, reverse=True)[:5]
 
 # 遍历轮廓
 for c in cnts:
-    # 计算轮廓近似
+    # 计算近似轮廓
     peri = cv2.arcLength(c, True)
-    # C表示输入的点集
-    # epsilon表示从原始轮廓到近似轮廓的最大距离，它是一个准确度参数
-    # True表示封闭的
     approx = cv2.approxPolyDP(c, 0.02 * peri, True)
 
-    # 4个点的时候就拿出来
+    # 4个点的时候就拿出来,文档是方的
     if len(approx) == 4:
         screenCnt = approx
         break
@@ -118,9 +100,7 @@ for c in cnts:
 # 展示结果
 print("STEP 2: 获取轮廓")
 cv2.drawContours(image, [screenCnt], -1, (0, 255, 0), 2)
-cv2.imshow("Outline", image)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+cv_show("Outline", image)
 
 # 透视变换
 warped = four_point_transform(orig, screenCnt.reshape(4, 2) * ratio)
@@ -131,9 +111,8 @@ ref = cv2.threshold(warped, 100, 255, cv2.THRESH_BINARY)[1]
 cv2.imwrite('scan.jpg', ref)
 # 展示结果
 print("STEP 3: 变换")
-cv2.imshow("Original", resize(orig, height=650))
-cv2.imshow("Scanned", resize(ref, height=650))
-cv2.waitKey(0)
+cv_show("Original", img_resize(orig, height=650))
+cv_show("Scanned", img_resize(ref, height=650))
 
 # 使用Tesseract进行OCR识别
 # https://digi.bib.uni-mannheim.de/tesseract/
@@ -144,19 +123,19 @@ cv2.waitKey(0)
 # windows环境下还要修改这个文件,anaconda/lib/site-packges/pytesseract/pytesseract.py
 # tesseract_cmd 修改为绝对路径
 
-preprocess = 'blur'
-image = cv2.imread('scan.jpg')
-gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-# 滤波或者做二值化都行
-if preprocess == "thresh":
-    gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-if preprocess == "blur":
-    gray = cv2.medianBlur(gray, 3)
-
-# 复制一个新的图片来做
-filename = "{}.png".format(os.getpid())
-cv2.imwrite(filename, gray)
-text = pytesseract.image_to_string(Image.open(filename))
-print(text)
-os.remove(filename)
+# preprocess = 'blur'
+# image = cv2.imread('scan.jpg')
+# gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+#
+# # 滤波或者做二值化都行
+# if preprocess == "thresh":
+#     gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+# if preprocess == "blur":
+#     gray = cv2.medianBlur(gray, 3)
+#
+# # 复制一个新的图片来做
+# filename = "{}.png".format(os.getpid())
+# cv2.imwrite(filename, gray)
+# text = pytesseract.image_to_string(Image.open(filename))
+# print(text)
+# os.remove(filename)
