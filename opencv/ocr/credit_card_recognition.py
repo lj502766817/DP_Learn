@@ -67,13 +67,16 @@ image = img_resize(image, width=300)
 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 cv_show('gray', gray)
 
-# 礼帽操作,原始输入-开运算(就是现做腐蚀操作,然后再做膨胀操作)，突出更明亮的区域
+# 礼帽操作,原始输入-开运算(就是先做腐蚀操作,然后再做膨胀操作)，突出灰度中更明亮的区域
 tophat = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, rectKernel)
 cv_show('tophat', tophat)
 # ksize=-1相当于用3*3的
+# 通过Sobel算子把轮廓把边缘轮廓找出来,这里就找的x方向,效果更好点
 gradX = cv2.Sobel(tophat, ddepth=cv2.CV_32F, dx=1, dy=0,
                   ksize=-1)
 
+# 先做个绝对值,再做个归一化,可以直接用gradX = cv2.convertScaleAbs(gradX, alpha=0.5)代替,不过要注意参数alpha的选择
+# gradX = cv2.convertScaleAbs(gradX, alpha=0.5)
 gradX = np.absolute(gradX)
 (minVal, maxVal) = (np.min(gradX), np.max(gradX))
 gradX = (255 * ((gradX - minVal) / (maxVal - minVal)))
@@ -82,24 +85,22 @@ gradX = gradX.astype("uint8")
 print(np.array(gradX).shape)
 cv_show('gradX', gradX)
 
-# 通过闭操作（先膨胀，再腐蚀）将数字连在一起
+# 通过闭操作（先膨胀，再腐蚀）将数字区域连在一起
 gradX = cv2.morphologyEx(gradX, cv2.MORPH_CLOSE, rectKernel)
 cv_show('gradX', gradX)
 # THRESH_OTSU会自动寻找合适的阈值，适合双峰，需把阈值参数设置为0
 thresh = cv2.threshold(gradX, 0, 255,
                        cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-cv_show('thresh', thresh)
+cv_show('thresh1', thresh)
 
-# 再来一个闭操作
-
-thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, sqKernel)  # 再来一个闭操作
-cv_show('thresh', thresh)
+# 再来一个闭操作,使数字区域更好的连接到一个整体
+thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, sqKernel)
+cv_show('thresh2', thresh)
 
 # 计算轮廓
-
 thresh_, threshCnts, hierarchy = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL,
                                                   cv2.CHAIN_APPROX_SIMPLE)
-
+# 绘制轮廓
 cnts = threshCnts
 cur_img = image.copy()
 cv2.drawContours(cur_img, cnts, -1, (0, 0, 255), 3)
@@ -108,51 +109,58 @@ locs = []
 
 # 遍历轮廓
 for (i, c) in enumerate(cnts):
-    # 计算矩形
+    # 计算每个轮廓的外接矩形
     (x, y, w, h) = cv2.boundingRect(c)
     ar = w / float(h)
 
-    # 选择合适的区域，根据实际任务来，这里的基本都是四个数字一组
-    if 2.5 < ar < 4.0:
-
-        if (40 < w < 55) and (10 < h < 20):
-            # 符合的留下来
-            locs.append((x, y, w, h))
+    # 根据长宽比和数字区域的长宽范围,来筛选合适的区域，根据实际任务来，这里的基本都是四个数字一组
+    if (2.5 < ar < 4.0) and (40 < w < 55) and (10 < h < 20):
+        # 符合的留下来
+        locs.append((x, y, w, h))
 
 # 将符合的轮廓从左到右排序
 locs = sorted(locs, key=lambda x: x[0])
 output = []
 
+# 找到数字区域
+rectangle_img = image.copy()
+for (x, y, w, h) in locs:
+    rectangle_img = cv2.rectangle(rectangle_img, (x - 5, y - 5), (x + w + 5, y + h + 5), (0, 255, 0), 2)
+cv_show("rectangle_img", rectangle_img)
+
 # 遍历每一个轮廓中的数字
 for (i, (gX, gY, gW, gH)) in enumerate(locs):
-    # initialize the list of group digits
+
     groupOutput = []
 
-    # 根据坐标提取每一个组
+    # 在灰度图中,根据坐标提取每一个数字组
     group = gray[gY - 5:gY + gH + 5, gX - 5:gX + gW + 5]
-    cv_show('group', group)
-    # 预处理
+    cv_show('group1', group)
+    # 预处理,做成二值化
     group = cv2.threshold(group, 0, 255,
                           cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-    cv_show('group', group)
+    cv_show('group2', group)
     # 计算每一组的轮廓
     group_, digitCnts, hierarchy = cv2.findContours(group.copy(), cv2.RETR_EXTERNAL,
                                                     cv2.CHAIN_APPROX_SIMPLE)
+    # 把每一组的轮廓从左到右排序
     digitCnts = contours.sort_contours(digitCnts,
                                        method="left-to-right")[0]
 
     # 计算每一组中的每一个数值
     for c in digitCnts:
-        # 找到当前数值的轮廓，resize成合适的的大小
+        # 找到当前数值的外接矩形轮廓
         (x, y, w, h) = cv2.boundingRect(c)
+        # 从二值化的图中,把这个数字扣出来
         roi = group[y:y + h, x:x + w]
+        # 把大小做成和前面模板里的一样
         roi = cv2.resize(roi, (57, 88))
         cv_show('roi', roi)
 
         # 计算匹配得分
         scores = []
 
-        # 在模板中计算每一个得分
+        # 在模板中计算每一个得分,这里就相当于拿卡里拆出来的数字当模板去模板图片里一个个的匹配
         for (digit, digitROI) in digits.items():
             # 模板匹配
             result = cv2.matchTemplate(roi, digitROI,
@@ -163,7 +171,7 @@ for (i, (gX, gY, gW, gH)) in enumerate(locs):
         # 得到最合适的数字
         groupOutput.append(str(np.argmax(scores)))
 
-    # 画出来
+    # 画出来展示下
     cv2.rectangle(image, (gX - 5, gY - 5),
                   (gX + gW + 5, gY + gH + 5), (0, 0, 255), 1)
     cv2.putText(image, "".join(groupOutput), (gX, gY - 15),
