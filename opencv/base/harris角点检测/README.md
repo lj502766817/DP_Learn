@@ -27,6 +27,11 @@ $$
 然后我们可以对$I(u+\Delta x,v+\Delta y)$进行泰勒展开,取一阶的近似:
 
 $$
-I(u+\Delta x,v+\Delta y)=I(u,v)+I_x(u,v)\Delta x+I_y(u,v)\Delta y+o(\Delta x,\Delta y) \tag{$I_x,I_y$为(x,y)的一阶导}
+\begin{aligned} 
+&I(u+\Delta x,v+\Delta y) \\
+&=I(u,v)+I_x(u,v)\Delta x+I_y(u,v)\Delta y+o(\Delta x,\Delta y) \\ 
+&\approx I(u,v)+I_x(u,v)\Delta x+I_y(u,v)\Delta y \\
+\end{aligned}
+\tag{$I_x,I_y$为(x,y)的一阶导}
 $$
 
