@@ -21,12 +21,12 @@ harris算法角点检测就可以区分出图像中的这三种区域,特别是�
 对于某一个图像区域$\psi(x,y)$,在它平移了$(\Delta x,\Delta y)$之后,他的自关联函数,我们可以这样表示:
 
 $$
-c(x,y,\Delta x,\Delta y) = \sum_{(u,v)\in W(x,y)}w(u,v)(I(u,v)-I(u+\Delta x,v+\Delta y))^2 \tag{I(u,v)表示这里的梯度值}
+c(x,y,\Delta x,\Delta y) = \sum_{(u,v)\in W(x,y)}w(u,v)(I(u,v)-I(u+\Delta x,v+\Delta y))^2 \tag{I(u,v)表示这里的灰度值}
 $$
 
-然后我们可以对$I(u+\Delta x,v+\Delta y)$进行全微分的展开,然后用泰勒公式进行一阶的近似:
+然后我们可以对$I(u+\Delta x,v+\Delta y)$进行泰勒展开,取一阶的近似:
 
 $$
-I(u+\Delta x,v+\Delta y)=I(u,v)+I_x(u,v)\Delta x+I_y(u,v)\Delta y+o(\Delta x,\Delta y)
+I(u+\Delta x,v+\Delta y)=I(u,v)+I_x(u,v)\Delta x+I_y(u,v)\Delta y+o(\Delta x,\Delta y) \tag{$I_x,I_y$为(x,y)的一阶导}
 $$
 
