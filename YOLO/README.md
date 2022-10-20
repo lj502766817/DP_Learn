@@ -41,4 +41,6 @@ V1版本的重点在于最后的输出层.经过前面的CNN网络去提取特�
 ##### 损失函数
 
 V1版本最关键的点就是定义了YOLO目标检测的损失函数
+![YOLO损失函数](https://user-images.githubusercontent.com/28779173/196934339-d9177969-73a5-41a3-bc7e-c2ac8885d8af.jpg)
+
 
