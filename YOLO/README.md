@@ -79,4 +79,5 @@ YOLO-V1版本的属于YOLO系列的基础
 ##### 先验候选框
 
 V1的候选框是默认的2种,而且大小是常规预置的.这种可能并不能适合自己任务的数据集.
+![YOLO-V3结构图](https://user-images.githubusercontent.com/28779173/197393933-fa8dc500-d6cf-4942-8d24-a8ee3e0e8299.jpg)
 
