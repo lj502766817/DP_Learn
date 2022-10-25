@@ -177,9 +177,9 @@ def bbox_wh_iou(wh1, wh2):
     wh2 = wh2.t()
     w1, h1 = wh1[0], wh1[1]
     w2, h2 = wh2[0], wh2[1]
-    inter_area = torch.min(w1, w2) * torch.min(h1, h2)
-    union_area = (w1 * h1 + 1e-16) + w2 * h2 - inter_area
-    return inter_area / union_area
+    inter_area = torch.min(w1, w2) * torch.min(h1, h2)  # 计算相交区域
+    union_area = (w1 * h1 + 1e-16) + w2 * h2 - inter_area  # 计算合并区域,两个的面积相加再减一次重叠部分
+    return inter_area / union_area  # IOU的值
 
 
 def bbox_iou(box1, box2, x1y1x2y2=True):
@@ -260,55 +260,81 @@ def build_targets(pred_boxes, pred_cls, target, anchors, ignore_thres):
     ByteTensor = torch.cuda.ByteTensor if pred_boxes.is_cuda else torch.ByteTensor
     FloatTensor = torch.cuda.FloatTensor if pred_boxes.is_cuda else torch.FloatTensor
 
-    nB = pred_boxes.size(0)  # batchsieze 4
-    nA = pred_boxes.size(1)  # 每个格子对应了多少个anchor
-    nC = pred_cls.size(-1)  # 类别的数量
-    nG = pred_boxes.size(2)  # gridsize
+    # batchsieze 4
+    nB = pred_boxes.size(0)
+    # 每个格子对应了多少个anchor
+    nA = pred_boxes.size(1)
+    # 类别的数量
+    nC = pred_cls.size(-1)
+    # gridsize
+    nG = pred_boxes.size(2)
 
     # Output tensors
-    obj_mask = ByteTensor(nB, nA, nG, nG).fill_(0)  # obj，anchor包含物体, 即为1，默认为0 考虑前景
-    noobj_mask = ByteTensor(nB, nA, nG, nG).fill_(1)  # noobj, anchor不包含物体, 则为1，默认为1 考虑背景
-    class_mask = FloatTensor(nB, nA, nG, nG).fill_(0)  # 类别掩膜，类别预测正确即为1，默认全为0
-    iou_scores = FloatTensor(nB, nA, nG, nG).fill_(0)  # 预测框与真实框的iou得分
-    tx = FloatTensor(nB, nA, nG, nG).fill_(0)  # 真实框相对于网格的位置
+    # 标识每个cell是不是有物体, 有物体就是1，默认为0 考虑前景
+    obj_mask = ByteTensor(nB, nA, nG, nG).fill_(0)
+    # 标识每个cell是不是没有物体,没有物体则为1，默认为1 考虑背景
+    noobj_mask = ByteTensor(nB, nA, nG, nG).fill_(1)
+    # 类别掩膜，类别预测正确即为1，默认全为0
+    class_mask = FloatTensor(nB, nA, nG, nG).fill_(0)
+    # 预测框与真实框的iou得分,默认0
+    iou_scores = FloatTensor(nB, nA, nG, nG).fill_(0)
+    # 真实框相对于网格的位置
+    tx = FloatTensor(nB, nA, nG, nG).fill_(0)
     ty = FloatTensor(nB, nA, nG, nG).fill_(0)
     tw = FloatTensor(nB, nA, nG, nG).fill_(0)
     th = FloatTensor(nB, nA, nG, nG).fill_(0)
+    # 多一维,80个类别
     tcls = FloatTensor(nB, nA, nG, nG, nC).fill_(0)
 
     # Convert to position relative to box
-    target_boxes = target[:, 2:6] * nG  # target中的xywh都是0-1的，可以得到其在当前gridsize上的xywh
+    # target中的xywh都是0-1的,是相对于(0,0)的偏移比例，等比缩放可以得到真实标签在特征图上的位置
+    target_boxes = target[:, 2:6] * nG
+    # 特征图上标签的xy
     gxy = target_boxes[:, :2]
+    # 特征图上标签的wh
     gwh = target_boxes[:, 2:]
     # Get anchors with best iou
-    ious = torch.stack([bbox_wh_iou(anchor, gwh) for anchor in anchors])  # 每一种规格的anchor跟每个标签上的框的IOU得分
+    # 每一种规格的先验框跟每个标签上的框的IOU得分
+    ious = torch.stack([bbox_wh_iou(anchor, gwh) for anchor in anchors])
     print(ious.shape)
-    best_ious, best_n = ious.max(0)  # 得到其最高分以及哪种规格框和当前目标最相似
+    # 得到其最高分以及哪种规格框和当前目标最相似
+    best_ious, best_n = ious.max(0)
     # Separate target values
-    b, target_labels = target[:, :2].long().t()  # 真实框所对应的batch，以及每个框所代表的实际类别
+    # 真实框所对应的batch，以及每个框所代表的实际类别
+    b, target_labels = target[:, :2].long().t()
+    # 标签中心点坐标
     gx, gy = gxy.t()
+    # 标签长宽
     gw, gh = gwh.t()
-    gi, gj = gxy.long().t()  # 位置信息，向下取整了
+    # 位置信息，向下取整了,就是中心点所在的cell的坐标
+    gi, gj = gxy.long().t()
     # Set masks
-    obj_mask[b, best_n, gj, gi] = 1  # 实际包含物体的设置成1
-    noobj_mask[b, best_n, gj, gi] = 0  # 相反
+    # 前景,实际包含物体的设置成1
+    obj_mask[b, best_n, gj, gi] = 1
+    # 背景,相反
+    noobj_mask[b, best_n, gj, gi] = 0
 
     # Set noobj mask to zero where iou exceeds ignore threshold
-    for i, anchor_ious in enumerate(ious.t()):  # IOU超过了指定的阈值就相当于有物体了
+    # IOU超过了指定的阈值就相当于有物体了,就是除开最优的那个先验框以外,如果其他的先验框的IOU也可以的话,那么认为它也能用
+    for i, anchor_ious in enumerate(ious.t()):
         noobj_mask[b[i], anchor_ious > ignore_thres, gj[i], gi[i]] = 0
 
     # Coordinates
-    tx[b, best_n, gj, gi] = gx - gx.floor()  # 根据真实框所在位置，得到其相当于网络的位置
+    # 根据真实框所在位置，得到其相当于网络的位置,就是偏移量
+    tx[b, best_n, gj, gi] = gx - gx.floor()
     ty[b, best_n, gj, gi] = gy - gy.floor()
     # Width and height
+    # 这里也是按照公式来计算的偏移量
     tw[b, best_n, gj, gi] = torch.log(gw / anchors[best_n][:, 0] + 1e-16)
     th[b, best_n, gj, gi] = torch.log(gh / anchors[best_n][:, 1] + 1e-16)
     # One-hot encoding of label
-    tcls[b, best_n, gj, gi, target_labels] = 1  # 将真实框的标签转换为one-hot编码形式
+    # 将真实框的分类标签转换为one-hot编码形式
+    tcls[b, best_n, gj, gi, target_labels] = 1
     # Compute label correctness and iou at best anchor 计算预测的和真实一样的索引
-    class_mask[b, best_n, gj, gi] = (pred_cls[b, best_n, gj, gi].argmax(-1) == target_labels).float()
-    iou_scores[b, best_n, gj, gi] = bbox_iou(pred_boxes[b, best_n, gj, gi], target_boxes,
-                                             x1y1x2y2=False)  # 与真实框想匹配的预测框之间的iou值
+    class_mask[b, best_n, gj, gi] = (pred_cls[b, best_n, gj, gi].argmax(-1) == target_labels).float()  # TODO:要在多数据下看看
+    # 与真实框想匹配的预测框之间的iou值
+    iou_scores[b, best_n, gj, gi] = bbox_iou(pred_boxes[b, best_n, gj, gi], target_boxes, x1y1x2y2=False)
 
-    tconf = obj_mask.float()  # 真实框的置信度，也就是1
+    # 真实框的置信度，也就是1
+    tconf = obj_mask.float()
     return iou_scores, class_mask, obj_mask, noobj_mask, tx, ty, tw, th, tcls, tconf
