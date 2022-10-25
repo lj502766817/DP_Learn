@@ -145,15 +145,21 @@ class YOLOLayer(nn.Module):
         FloatTensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
         self.stride = self.img_dim / self.grid_size
         # Calculate offsets for each grid
+        # 在当前特征图下网格的x坐标,并将格式做成和特征图一样
         self.grid_x = torch.arange(g).repeat(g, 1).view([1, 1, g, g]).type(FloatTensor)
+        # 在当前特征图下网格的y坐标
         self.grid_y = torch.arange(g).repeat(g, 1).t().view([1, 1, g, g]).type(FloatTensor)
+        # 将原始图像上的先验框,等比缩到当前特征图的大小
         self.scaled_anchors = FloatTensor([(a_w / self.stride, a_h / self.stride) for a_w, a_h in self.anchors])
+        # 拿先验框的宽
         self.anchor_w = self.scaled_anchors[:, 0:1].view((1, self.num_anchors, 1, 1))
+        # 拿先验框的长
         self.anchor_h = self.scaled_anchors[:, 1:2].view((1, self.num_anchors, 1, 1))
 
     def forward(self, x, targets=None, img_dim=None):
         # Tensors for cuda support
-        print(x.shape)  # 第一次进yolo层的是感受野最大的那个,输出大候选框的输出层,(batch,255,13,13)
+        # 第一次进yolo层的是感受野最大的那个,输出大候选框的输出层,(batch,255,13,13)
+        print(x.shape)
         FloatTensor = torch.cuda.FloatTensor if x.is_cuda else torch.FloatTensor
         LongTensor = torch.cuda.LongTensor if x.is_cuda else torch.LongTensor
         ByteTensor = torch.cuda.ByteTensor if x.is_cuda else torch.ByteTensor
@@ -162,43 +168,56 @@ class YOLOLayer(nn.Module):
         num_samples = x.size(0)
         grid_size = x.size(2)
 
-        prediction = (  # 将255拆分成3种先验框,每个先验框都有,中心点位置,长宽,置信度和num_classes分类,
+        prediction = (
+            # 将255拆分成3种先验框,每个先验框都有,中心点位置,长宽,置信度和num_classes分类
             x.view(num_samples, self.num_anchors, self.num_classes + 5, grid_size, grid_size)
-                .permute(0, 1, 3, 4, 2)  # 把channel放到后面
-                .contiguous()
+            # 把channel放到后面
+            .permute(0, 1, 3, 4, 2)
+            .contiguous()
         )
         print(prediction.shape)
         # Get outputs
-        x = torch.sigmoid(prediction[..., 0])  # 预测值第四个轴上的第一位是中心点的x值
-        y = torch.sigmoid(prediction[..., 1])  # 中心点y值
-        w = prediction[..., 2]  # 预测框的宽
-        h = prediction[..., 3]  # 预测框的高
-        pred_conf = torch.sigmoid(prediction[..., 4])  # 置信度
-        pred_cls = torch.sigmoid(prediction[..., 5:])  # 使用sigmoid函数来做多标签的分类任务
+        # 预测值第四个轴上的第一位是中心点的x值
+        x = torch.sigmoid(prediction[..., 0])  # 按照论文的公式,中心点的x,y要过sigmoid函数
+        # 中心点y值
+        y = torch.sigmoid(prediction[..., 1])
+        # 预测框的宽
+        w = prediction[..., 2]
+        # 预测框的高
+        h = prediction[..., 3]
+        # 置信度
+        pred_conf = torch.sigmoid(prediction[..., 4])
+        # 使用sigmoid函数来做多标签的分类任务
+        pred_cls = torch.sigmoid(prediction[..., 5:])
 
         # If grid size does not match current we compute new offsets
-        if grid_size != self.grid_size:  # debug到这里
-            self.compute_grid_offsets(grid_size, cuda=x.is_cuda)  # 相对位置得到对应的绝对位置,比如之前的位置是0.5,0.5变为 11.5，11.5这样的
+        if grid_size != self.grid_size:
+            # 基于当前的grid size将之前的的先验框转换成当前的,比如之前的grid是10*10的,现在是5*5,那么先验框也要等比的缩小到现在
+            self.compute_grid_offsets(grid_size, cuda=x.is_cuda)
 
-        # Add offset and scale with anchors #特征图中的实际位置
+        # Add offset and scale with anchors ,特征图中的实际位置,由于预测值都是偏移量,所以这里要把偏移量还原成真实量,按照论文里的公式计算就行了
         pred_boxes = FloatTensor(prediction[..., :4].shape)
         pred_boxes[..., 0] = x.data + self.grid_x
         pred_boxes[..., 1] = y.data + self.grid_y
         pred_boxes[..., 2] = torch.exp(w.data) * self.anchor_w
         pred_boxes[..., 3] = torch.exp(h.data) * self.anchor_h
 
+        # 把这些结果重新拼接起来,就是最终的结果了
         output = torch.cat(
             (
-                pred_boxes.view(num_samples, -1, 4) * self.stride,  # 还原到原始图中
+                # 乘上stride就把特征图的数据还原到原始图中
+                pred_boxes.view(num_samples, -1, 4) * self.stride,
                 pred_conf.view(num_samples, -1, 1),
                 pred_cls.view(num_samples, -1, self.num_classes),
             ),
             -1,
-        )
+        )  # 第一个yolo层这里结果是(batch,507,85)->(batch,3,13,13,85)
 
+        # 没有target就是不做训练了
         if targets is None:
             return output, 0
         else:
+            # 根据预测结果构造标签数据
             iou_scores, class_mask, obj_mask, noobj_mask, tx, ty, tw, th, tcls, tconf = build_targets(
                 pred_boxes=pred_boxes,
                 pred_cls=pred_cls,
@@ -206,20 +225,28 @@ class YOLOLayer(nn.Module):
                 anchors=self.scaled_anchors,
                 ignore_thres=self.ignore_thres,
             )
+
             # iou_scores：真实值与最匹配的anchor的IOU得分值 class_mask：分类正确的索引  obj_mask：目标框所在位置的最好anchor置为1 noobj_mask
             # obj_mask那里置0，还有计算的iou大于阈值的也置0，其他都为1 tx, ty, tw, th, 对应的对于该大小的特征图的xywh目标值也就是我们需要拟合的值 tconf 目标置信度 Loss :
             # Mask outputs to ignore non-existing objects (except with conf. loss)
-            loss_x = self.mse_loss(x[obj_mask], tx[obj_mask])  # 只计算有目标的
+
+            # 只计算有目标的,数值相关的就用mse
+            loss_x = self.mse_loss(x[obj_mask], tx[obj_mask])
             loss_y = self.mse_loss(y[obj_mask], ty[obj_mask])
             loss_w = self.mse_loss(w[obj_mask], tw[obj_mask])
             loss_h = self.mse_loss(h[obj_mask], th[obj_mask])
+            # 前景的置信度,类别相关的就用bce
             loss_conf_obj = self.bce_loss(pred_conf[obj_mask], tconf[obj_mask])
+            # 背景的置信度
             loss_conf_noobj = self.bce_loss(pred_conf[noobj_mask], tconf[noobj_mask])
-            loss_conf = self.obj_scale * loss_conf_obj + self.noobj_scale * loss_conf_noobj  # 有物体越接近1越好 没物体的越接近0越好
-            loss_cls = self.bce_loss(pred_cls[obj_mask], tcls[obj_mask])  # 分类损失
-            total_loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls  # 总损失
+            # 置信度的loss需要乘一个权重值,有物体越接近1越好,没物体的越接近0越好
+            loss_conf = self.obj_scale * loss_conf_obj + self.noobj_scale * loss_conf_noobj
+            # 分类损失
+            loss_cls = self.bce_loss(pred_cls[obj_mask], tcls[obj_mask])
+            # 总损失
+            total_loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls
 
-            # Metrics
+            # Metrics,一些评估指标
             cls_acc = 100 * class_mask[obj_mask].mean()
             conf_obj = pred_conf[obj_mask].mean()
             conf_noobj = pred_conf[noobj_mask].mean()
@@ -267,17 +294,20 @@ class Darknet(nn.Module):
         self.header_info = np.array([0, 0, 0, self.seen, 0], dtype=np.int32)
 
     def forward(self, x, targets=None):
-        img_dim = x.shape[2]  # channel first 所以图片尺寸在第三位
+        # channel first 所以图片尺寸在第三位
+        img_dim = x.shape[2]
         loss = 0
         layer_outputs, yolo_outputs = [], []
         for i, (module_def, module) in enumerate(zip(self.module_defs, self.module_list)):
             if module_def["type"] in ["convolutional", "upsample", "maxpool"]:
-                x = module(x)  # 卷积层,上采样层,maxpool就是正常用pytorch的提供的方法做
+                # 卷积层,上采样层,maxpool就是正常用pytorch的提供的方法做
+                x = module(x)
             elif module_def["type"] == "route":
                 x = torch.cat([layer_outputs[int(layer_i)] for layer_i in module_def["layers"].split(",")], 1)
             elif module_def["type"] == "shortcut":
+                # 残差连接,把上一层输出的结果和残差前面的目标层结果直接相加
                 layer_i = int(module_def["from"])
-                x = layer_outputs[-1] + layer_outputs[layer_i]  # 残差连接,把上一层输出的结果和残差前面的目标层结果直接相加
+                x = layer_outputs[-1] + layer_outputs[layer_i]
             elif module_def["type"] == "yolo":
                 x, layer_loss = module[0](x, targets, img_dim)
                 loss += layer_loss
