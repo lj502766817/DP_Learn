@@ -187,7 +187,7 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
     Returns the IoU of two bounding boxes
     """
     if not x1y1x2y2:
-        # Transform from center and width to exact coordinates
+        # Transform from center and width to exact coordinates,坐标方式如果是中心点和宽度就做转换
         b1_x1, b1_x2 = box1[:, 0] - box1[:, 2] / 2, box1[:, 0] + box1[:, 2] / 2
         b1_y1, b1_y2 = box1[:, 1] - box1[:, 3] / 2, box1[:, 1] + box1[:, 3] / 2
         b2_x1, b2_x2 = box2[:, 0] - box2[:, 2] / 2, box2[:, 0] + box2[:, 2] / 2
@@ -300,7 +300,7 @@ def build_targets(pred_boxes, pred_cls, target, anchors, ignore_thres):
     # 得到其最高分以及哪种规格框和当前目标最相似
     best_ious, best_n = ious.max(0)
     # Separate target values
-    # 真实框所对应的batch，以及每个框所代表的实际类别
+    # 得到标签所属的batch和每个样本里含有的标签,一个batch可能有任意个标签
     b, target_labels = target[:, :2].long().t()
     # 标签中心点坐标
     gx, gy = gxy.t()
@@ -309,18 +309,18 @@ def build_targets(pred_boxes, pred_cls, target, anchors, ignore_thres):
     # 位置信息，向下取整了,就是中心点所在的cell的坐标
     gi, gj = gxy.long().t()
     # Set masks
-    # 前景,实际包含物体的设置成1
+    # 前景,实际包含物体的设置成1,每个样本,哪个候选框,在哪个cell有物体
     obj_mask[b, best_n, gj, gi] = 1
     # 背景,相反
     noobj_mask[b, best_n, gj, gi] = 0
 
     # Set noobj mask to zero where iou exceeds ignore threshold
-    # IOU超过了指定的阈值就相当于有物体了,就是除开最优的那个先验框以外,如果其他的先验框的IOU也可以的话,那么认为它也能用
+    # IOU超过了指定的阈值就相当于有物体了,就是除开最优的那个先验框以外,如果其他的先验框的IOU也可以的话,那么认为它也算是物体,就把那里的背景认为有物体
     for i, anchor_ious in enumerate(ious.t()):
         noobj_mask[b[i], anchor_ious > ignore_thres, gj[i], gi[i]] = 0
 
     # Coordinates
-    # 根据真实框所在位置，得到其相当于网络的位置,就是偏移量
+    # 根据真实框所在位置，得到其相当于网络的位置,就是偏移量,按照论文的公式反推
     tx[b, best_n, gj, gi] = gx - gx.floor()
     ty[b, best_n, gj, gi] = gy - gy.floor()
     # Width and height
@@ -328,11 +328,11 @@ def build_targets(pred_boxes, pred_cls, target, anchors, ignore_thres):
     tw[b, best_n, gj, gi] = torch.log(gw / anchors[best_n][:, 0] + 1e-16)
     th[b, best_n, gj, gi] = torch.log(gh / anchors[best_n][:, 1] + 1e-16)
     # One-hot encoding of label
-    # 将真实框的分类标签转换为one-hot编码形式
+    # 将真实框的分类标签转换为one-hot编码形式,哪个候选框的哪个cell里有什么物体
     tcls[b, best_n, gj, gi, target_labels] = 1
-    # Compute label correctness and iou at best anchor 计算预测的和真实一样的索引
-    class_mask[b, best_n, gj, gi] = (pred_cls[b, best_n, gj, gi].argmax(-1) == target_labels).float()  # TODO:要在多数据下看看
-    # 与真实框想匹配的预测框之间的iou值
+    # Compute label correctness and iou at best anchor 计算预测的和真实一样的索引,最优候选框下哪个格子预测对了,哪个格子预测错了,做评估指标可以用
+    class_mask[b, best_n, gj, gi] = (pred_cls[b, best_n, gj, gi].argmax(-1) == target_labels).float()
+    # 与真实框相匹配的预测框之间的iou值,得到每个cell的iou值
     iou_scores[b, best_n, gj, gi] = bbox_iou(pred_boxes[b, best_n, gj, gi], target_boxes, x1y1x2y2=False)
 
     # 真实框的置信度，也就是1

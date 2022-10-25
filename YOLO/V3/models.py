@@ -171,9 +171,9 @@ class YOLOLayer(nn.Module):
         prediction = (
             # 将255拆分成3种先验框,每个先验框都有,中心点位置,长宽,置信度和num_classes分类
             x.view(num_samples, self.num_anchors, self.num_classes + 5, grid_size, grid_size)
-            # 把channel放到后面
-            .permute(0, 1, 3, 4, 2)
-            .contiguous()
+                # 把channel放到后面
+                .permute(0, 1, 3, 4, 2)
+                .contiguous()
         )
         print(prediction.shape)
         # Get outputs
@@ -230,11 +230,11 @@ class YOLOLayer(nn.Module):
             # obj_mask那里置0，还有计算的iou大于阈值的也置0，其他都为1 tx, ty, tw, th, 对应的对于该大小的特征图的xywh目标值也就是我们需要拟合的值 tconf 目标置信度 Loss :
             # Mask outputs to ignore non-existing objects (except with conf. loss)
 
-            # 只计算有目标的,数值相关的就用mse
+            # 中心点的计算是计算有物体的,中心点x的loss
             loss_x = self.mse_loss(x[obj_mask], tx[obj_mask])
-            loss_y = self.mse_loss(y[obj_mask], ty[obj_mask])
-            loss_w = self.mse_loss(w[obj_mask], tw[obj_mask])
-            loss_h = self.mse_loss(h[obj_mask], th[obj_mask])
+            loss_y = self.mse_loss(y[obj_mask], ty[obj_mask])  # 中心点y的loss
+            loss_w = self.mse_loss(w[obj_mask], tw[obj_mask])  # 预测框w的loss
+            loss_h = self.mse_loss(h[obj_mask], th[obj_mask])  # 预测框h的loss
             # 前景的置信度,类别相关的就用bce
             loss_conf_obj = self.bce_loss(pred_conf[obj_mask], tconf[obj_mask])
             # 背景的置信度

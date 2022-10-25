@@ -81,7 +81,7 @@ class ListDataset(Dataset):
         # ---------
 
         img_path = self.img_files[index % len(self.img_files)].rstrip()
-        img_path = 'E:\\eclipse-workspace\\PyTorch\\PyTorch-YOLOv3\\data\\coco' + img_path
+        img_path = 'G:\\BaiduNetdiskDownload\\dataSet\\COCO-DATA' + img_path
         # print (img_path)
         # Extract image as PyTorch tensor
         img = transforms.ToTensor()(Image.open(img_path).convert('RGB'))
@@ -102,7 +102,7 @@ class ListDataset(Dataset):
         # ---------
 
         label_path = self.label_files[index % len(self.img_files)].rstrip()
-        label_path = 'E:\\eclipse-workspace\\PyTorch\\PyTorch-YOLOv3\\data\\coco\\labels' + label_path
+        label_path = 'G:\\BaiduNetdiskDownload\\dataSet\\COCO-DATA\\labels' + label_path
         # print (label_path)
 
         targets = None
