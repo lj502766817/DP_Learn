@@ -65,6 +65,7 @@ if __name__ == "__main__":
         # Get detections
         with torch.no_grad():
             detections = model(input_imgs)
+            # 模型跑出的结构是多个先验框的,最后的结果需要做非极大值抑制
             detections = non_max_suppression(detections, opt.conf_thres, opt.nms_thres)
 
         # Log progress
