@@ -168,20 +168,16 @@ V4版本的改进属于是把当时一些优秀的方法都用上去了.改进�
 除开基本常规的图像数据增强策略:亮度调整,对比度,色调,随机缩放,剪切,旋转,翻卷.在V4里还使用了其他的数据增强策略
 
 * Mosaic data augmentation
-
   论文的作者将原始图像,MixUp图像,CutOut图像,CutMix图像都做了检测任务后,将结果进行对比,发现CutMix对结果有一些增强.于是在V4中,加上了CutMix来做图像增强
   CutMix就是将原本需要拿来做训练的4张图像,拼到一起,然后合成的图像里面该标注还是正常标注.再用合成图像来做训练.这样在batch不变的情况下,样本更加丰富了.
 
 * Random Erase
-
   用一些随机值或者训练集的平均像素值来替换训练图像的一些区域
 
 * Hide and Seek
-
   根据概率随机的在图像上打一些补丁来掩盖
 
 * Self-adversarial-training(SAT)
-
   根据一定的权重,给图像加一些噪声像素在里面.
 
 * DropBlock
@@ -229,3 +225,50 @@ V3版本的损失函数是用IOU来做的.但是单纯使用IOU来做的话是�
 
 ##### NMS改进
 
+在V3里NMS是完全基于IOU去做的,但是在V4里使用的是DIOU-NMS,还加入了候选框中心点间的距离:
+
+$$
+s_i=
+\begin{cases}
+s_i,\quad IoU-\mathcal{R}_{DIoU}(M,B_i) < \epsilon \\
+0,\quad IoU-\mathcal{R}_{DIoU}(M,B_i) \geq \epsilon
+\end{cases} 
+,
+\mathcal{R}_{DIoU}(M,B_i)={\rho^2(b,b^{gt})\over c^2}
+$$
+
+
+##### SPPNet
+
+参考SPP的空间金字塔的概念.在V4中也加入了SPP模块,将特征图经过多个maxpool后,这些特征图就拥有了不同感受野的特征,最后再concat再一起.这样显著提高了backbone的感受野.
+
+##### CSPNet
+
+在这个block中,作者将输入的特征图按照channel做切分,一部分走block过,另一部分直接concat到block的结果上.这样做的好处是在几乎不影响精度的情况下,大大提升了计算的速度.
+
+##### CBAM
+
+注意力机制,V4版本也加进来了,原始的CBAM是由两个部分组成的,CAM和SAM:
+
+![CBAM](https://user-images.githubusercontent.com/28779173/198267551-0365b70f-19ac-4524-a1d7-2a35395de55b.jpg)
+
+即在channel层面的注意力机制和在图像平面的注意力机制.
+而在YOLO中做了简化,去掉了CAM,并且简化SAM.将原始CAM里通过channel维度maxpool和avgpool得到的特征图的操作直接换成用原始特征图来做.
+这样的操作在引入注意力机制增加精度的同时,又不会带来太大的计算负担.
+
+##### PAN
+
+PAN的做法来自于FPN.
+在V3版本中,用高层的特征图往底层去融合就是FPN的做法.但是特征融合不仅仅可以高层往底层融合,底层也可以往高层融合.因此就有了PAN,在高层往底层融合完成后,再从底层往高层融合.
+
+##### Mish
+
+新的激活函数,相对于relu来说,在负轴的部分不是完全归零,而是留了一点.在使用了Mish后检测的精度在top-1和top-5上都有一个点的提升
+
+##### eliminate grid sensitivity
+
+这个就是避免,中心点在cell边界的情况.因为偏移量是经过了sigmoid函数转换的,但是sigmoid函数在取0或1的时候需要很大的输入值,因此在sigmoid函数前加一个权重值,可以优化这种情况.
+
+##### V4整体结构
+
+![YOLO-V4网络结构](https://user-images.githubusercontent.com/28779173/198267238-6c547606-76e6-4995-8686-20244c0c8602.jpg)
