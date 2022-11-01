@@ -35,7 +35,7 @@ from utils.torch_utils import copy_attr, smart_inference_mode
 
 
 def autopad(k, p=None, d=1):  # kernel, padding, dilation
-    # Pad to 'same' shape outputs
+    # Pad to 'same' shape outputs 自动设置padding 使输入特征图大小和输出的特征图大小一样
     if d > 1:
         k = d * (k - 1) + 1 if isinstance(k, int) else [d * (x - 1) + 1 for x in k]  # actual kernel-size
     if p is None:
@@ -45,10 +45,10 @@ def autopad(k, p=None, d=1):  # kernel, padding, dilation
 
 class Conv(nn.Module):
     # Standard convolution with args(ch_in, ch_out, kernel, stride, padding, groups, dilation, activation)
-    default_act = nn.SiLU()  # default activation
+    default_act = nn.SiLU()  # default activation 这里设置了默认的激活函数:x * σ(x),σ是sigmoid函数
 
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1, d=1, act=True):
-        super().__init__()
+        super().__init__()  # 卷积层就是一个2d卷积+bn+激活函数
         self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p, d), groups=g, dilation=d, bias=False)
         self.bn = nn.BatchNorm2d(c2)
         self.act = self.default_act if act is True else act if isinstance(act, nn.Module) else nn.Identity()
@@ -111,7 +111,7 @@ class TransformerBlock(nn.Module):
 class Bottleneck(nn.Module):
     # Standard bottleneck
     def __init__(self, c1, c2, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, shortcut, groups, expansion
-        super().__init__()
+        super().__init__()  # 根据输入特征图的大小来决定是做残差连接还是做嵌套的卷积
         c_ = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, c_, 1, 1)
         self.cv2 = Conv(c_, c2, 3, 1, g=g)
@@ -157,11 +157,11 @@ class CrossConv(nn.Module):
 class C3(nn.Module):
     # CSP Bottleneck with 3 convolutions
     def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
-        super().__init__()
+        super().__init__()  # 带Bottleneck的csp层,通过卷积把特征图切成两半,然后一个走Bottleneck,一个不走,最后拼起来再做个卷积做融合
         c_ = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, c_, 1, 1)
         self.cv2 = Conv(c1, c_, 1, 1)
-        self.cv3 = Conv(2 * c_, c2, 1)  # optional act=FReLU(c2)
+        self.cv3 = Conv(2 * c_, c2, 1)  # optional act=FReLU(c2) 这里作者貌似表示可以换下激活函数
         self.m = nn.Sequential(*(Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)))
 
     def forward(self, x):
@@ -219,11 +219,11 @@ class SPP(nn.Module):
 class SPPF(nn.Module):
     # Spatial Pyramid Pooling - Fast (SPPF) layer for YOLOv5 by Glenn Jocher
     def __init__(self, c1, c2, k=5):  # equivalent to SPP(k=(5, 9, 13))
-        super().__init__()
+        super().__init__()  # yolo5的快速版本spp,用小卷积核的maxpool的多层堆叠来替代大卷积核的maxpool
         c_ = c1 // 2  # hidden channels
-        self.cv1 = Conv(c1, c_, 1, 1)
-        self.cv2 = Conv(c_ * 4, c2, 1, 1)
-        self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
+        self.cv1 = Conv(c1, c_, 1, 1)  # 1号卷积把输入特征图减半
+        self.cv2 = Conv(c_ * 4, c2, 1, 1)  # 2号特征图把翻了两倍的特征图还原回去
+        self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)  # yolo5里的spp是制作一次maxpool
 
     def forward(self, x):
         x = self.cv1(x)

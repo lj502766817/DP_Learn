@@ -309,7 +309,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
     for i, (f, n, m, args) in enumerate(d['backbone'] + d['head']):  # from, number, module, args 开始构建整个网络
         m = eval(m) if isinstance(m, str) else m  # eval strings 如果是字符串就找对应的类
-        for j, a in enumerate(args):
+        for j, a in enumerate(args):  # 有的参数是变量,这里就找到那个变量
             with contextlib.suppress(NameError):
                 args[j] = eval(a) if isinstance(a, str) else a  # eval strings
 
@@ -328,7 +328,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         elif m is nn.BatchNorm2d:
             args = [ch[f]]
         elif m is Concat:
-            c2 = sum(ch[x] for x in f)
+            c2 = sum(ch[x] for x in f)  # Concat是把两个特征图拼起来,所以需要计算拼接后的特征图层数
         # TODO: channel, gw, gd
         elif m in {Detect, Segment}:
             args.append([ch[x] for x in f])
@@ -343,7 +343,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         else:
             c2 = ch[f]
 
-        m_ = nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module 按照n次去实例化对应的模型,构建模型的序列 TODO:debug到这了
+        m_ = nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module 按照n次去实例化对应的模型,构建模型的序列 TODO:debug到Detect
         t = str(m)[8:-2].replace('__main__.', '')  # module type
         np = sum(x.numel() for x in m_.parameters())  # number params
         m_.i, m_.f, m_.type, m_.np = i, f, t, np  # attach index, 'from' index, type, number params
