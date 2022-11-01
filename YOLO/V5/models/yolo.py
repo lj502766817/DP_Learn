@@ -171,18 +171,18 @@ class DetectionModel(BaseModel):
         else:  # is *.yaml
             import yaml  # for torch hub
             self.yaml_file = Path(cfg).name
-            with open(cfg, encoding='ascii', errors='ignore') as f:
+            with open(cfg, encoding='ascii', errors='ignore') as f:  # 把yaml配置文件读进来,然后转成字典
                 self.yaml = yaml.safe_load(f)  # model dict
 
         # Define model
-        ch = self.yaml['ch'] = self.yaml.get('ch', ch)  # input channels
-        if nc and nc != self.yaml['nc']:
+        ch = self.yaml['ch'] = self.yaml.get('ch', ch)  # input channels 输入图像的通道数
+        if nc and nc != self.yaml['nc']:  # 如果初始化模型的时候有输入的nc和先验框的话就以输入为准
             LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
             self.yaml['nc'] = nc  # override yaml value
         if anchors:
             LOGGER.info(f'Overriding model.yaml anchors with anchors={anchors}')
             self.yaml['anchors'] = round(anchors)  # override yaml value
-        self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist
+        self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist 把yaml转换成模型
         self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
         self.inplace = self.yaml.get('inplace', True)
 
@@ -299,29 +299,29 @@ class ClassificationModel(BaseModel):
 def parse_model(d, ch):  # model_dict, input_channels(3)
     # Parse a YOLOv5 model.yaml dictionary
     LOGGER.info(f"\n{'':>3}{'from':>18}{'n':>3}{'params':>10}  {'module':<40}{'arguments':<30}")
-    anchors, nc, gd, gw, act = d['anchors'], d['nc'], d['depth_multiple'], d['width_multiple'], d.get('activation')
-    if act:
+    anchors, nc, gd, gw, act = d['anchors'], d['nc'], d['depth_multiple'], d['width_multiple'], d.get('activation')  # 把一些先验的参数拿出来
+    if act:  # 有配置激活函数就用配置的
         Conv.default_act = eval(act)  # redefine default activation, i.e. Conv.default_act = nn.SiLU()
         LOGGER.info(f"{colorstr('activation:')} {act}")  # print
-    na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors
-    no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
+    na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors,除以二是因为先验框wh是一对一对的
+    no = na * (nc + 5)  # number of outputs = anchors * (classes + 5) 先验框数乘上每个先验框对应的 分类数,xywh,置信度
 
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
-    for i, (f, n, m, args) in enumerate(d['backbone'] + d['head']):  # from, number, module, args
-        m = eval(m) if isinstance(m, str) else m  # eval strings
+    for i, (f, n, m, args) in enumerate(d['backbone'] + d['head']):  # from, number, module, args 开始构建整个网络
+        m = eval(m) if isinstance(m, str) else m  # eval strings 如果是字符串就找对应的类
         for j, a in enumerate(args):
             with contextlib.suppress(NameError):
                 args[j] = eval(a) if isinstance(a, str) else a  # eval strings
 
-        n = n_ = max(round(n * gd), 1) if n > 1 else n  # depth gain
-        if m in {
+        n = n_ = max(round(n * gd), 1) if n > 1 else n  # depth gain 表示这一层要重复多少次,最少一次
+        if m in {  # 这里就是不同层的定义走不同层的逻辑
                 Conv, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, MixConv2d, Focus, CrossConv,
                 BottleneckCSP, C3, C3TR, C3SPP, C3Ghost, nn.ConvTranspose2d, DWConvTranspose2d, C3x}:
             c1, c2 = ch[f], args[0]
-            if c2 != no:  # if not output
-                c2 = make_divisible(c2 * gw, 8)
+            if c2 != no:  # if not output 如果不是最后一层的话,就要把特征图数乘上对应的增益值
+                c2 = make_divisible(c2 * gw, 8)  # 这里因为是yolo5s,所以是对半除
 
-            args = [c1, c2, *args[1:]]
+            args = [c1, c2, *args[1:]]  # 重新构建模型的入参
             if m in {BottleneckCSP, C3, C3TR, C3Ghost, C3x}:
                 args.insert(2, n)  # number of repeats
                 n = 1
@@ -343,7 +343,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         else:
             c2 = ch[f]
 
-        m_ = nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
+        m_ = nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module 按照n次去实例化对应的模型,构建模型的序列 TODO:debug到这了
         t = str(m)[8:-2].replace('__main__.', '')  # module type
         np = sum(x.numel() for x in m_.parameters())  # number params
         m_.i, m_.f, m_.type, m_.np = i, f, t, np  # attach index, 'from' index, type, number params
