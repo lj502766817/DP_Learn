@@ -119,7 +119,7 @@ def create_dataloader(path,
     if rect and shuffle:
         LOGGER.warning('WARNING ⚠️ --rect is incompatible with DataLoader shuffle, setting shuffle=False')
         shuffle = False
-    with torch_distributed_zero_first(rank):  # init dataset *.cache only once if DDP
+    with torch_distributed_zero_first(rank):  # init dataset *.cache only once if DDP 这一行的操作是为多机多卡准备的
         dataset = LoadImagesAndLabels(  # 加载数据
             path,
             imgsz,
@@ -134,11 +134,11 @@ def create_dataloader(path,
             image_weights=image_weights,
             prefix=prefix)
 
-    batch_size = min(batch_size, len(dataset))
+    batch_size = min(batch_size, len(dataset))  # 防止batchsize溢出
     nd = torch.cuda.device_count()  # number of CUDA devices
     nw = min([os.cpu_count() // max(nd, 1), batch_size if batch_size > 1 else 0, workers])  # number of workers
     sampler = None if rank == -1 else distributed.DistributedSampler(dataset, shuffle=shuffle)
-    loader = DataLoader if image_weights else InfiniteDataLoader  # only DataLoader allows for attribute updates
+    loader = DataLoader if image_weights else InfiniteDataLoader  # only DataLoader allows for attribute updates 默认使用InfiniteDataLoader
     generator = torch.Generator()
     generator.manual_seed(6148914691236517205 + RANK)
     return loader(dataset,
@@ -485,11 +485,11 @@ class LoadImagesAndLabels(Dataset):
             assert cache['version'] == self.cache_version  # matches current version
             assert cache['hash'] == get_hash(self.label_files + self.im_files)  # identical hash
         except Exception:
-            cache, exists = self.cache_labels(cache_path, prefix), False  # run cache ops TODO:debug到这了
+            cache, exists = self.cache_labels(cache_path, prefix), False  # run cache ops 加载不到缓存文件就创建缓存,把label缓存下来
 
         # Display cache
         nf, nm, ne, nc, n = cache.pop('results')  # found, missing, empty, corrupt, total
-        if exists and LOCAL_RANK in {-1, 0}:
+        if exists and LOCAL_RANK in {-1, 0}:  # 如果读的缓存就展示下
             d = f"Scanning '{cache_path}' images and labels... {nf} found, {nm} missing, {ne} empty, {nc} corrupt"
             tqdm(None, desc=prefix + d, total=n, initial=n, bar_format=BAR_FORMAT)  # display cache results
             if cache['msgs']:
@@ -497,22 +497,22 @@ class LoadImagesAndLabels(Dataset):
         assert nf > 0 or not augment, f'{prefix}No labels found in {cache_path}, can not start training. {HELP_URL}'
 
         # Read cache
-        [cache.pop(k) for k in ('hash', 'version', 'msgs')]  # remove items
-        labels, shapes, self.segments = zip(*cache.values())
-        nl = len(np.concatenate(labels, 0))  # number of labels
+        [cache.pop(k) for k in ('hash', 'version', 'msgs')]  # remove items 把与label以外的信息弹出去
+        labels, shapes, self.segments = zip(*cache.values())  # 留下的就是label信息,图片的size
+        nl = len(np.concatenate(labels, 0))  # number of labels 一共有多少个label
         assert nl > 0 or not augment, f'{prefix}All labels empty in {cache_path}, can not start training. {HELP_URL}'
-        self.labels = list(labels)
+        self.labels = list(labels)  # 从缓存里把label,图片shape,图片文件地址,label文件地址更新上去
         self.shapes = np.array(shapes)
         self.im_files = list(cache.keys())  # update
         self.label_files = img2label_paths(cache.keys())  # update
         n = len(shapes)  # number of images
-        bi = np.floor(np.arange(n) / batch_size).astype(int)  # batch index
-        nb = bi[-1] + 1  # number of batches
+        bi = np.floor(np.arange(n) / batch_size).astype(int)  # batch index 哪个图片对应那个batch
+        nb = bi[-1] + 1  # number of batches 一共有多少个batch
         self.batch = bi  # batch index of image
         self.n = n
         self.indices = range(n)
 
-        # Update labels
+        # Update labels 这个先跳过,不知道干嘛,拉的master的代码,可能还在开发中
         include_class = []  # filter labels to include only these classes (optional)
         include_class_array = np.array(include_class).reshape(1, -1)
         for i, (label, segment) in enumerate(zip(self.labels, self.segments)):
@@ -526,8 +526,8 @@ class LoadImagesAndLabels(Dataset):
                 if segment:
                     self.segments[i][:, 0] = 0
 
-        # Rectangular Training
-        if self.rect:
+        # Rectangular Training  https://github.com/ultralytics/yolov3/issues/232
+        if self.rect:  # 矩形方式训练,可以看看issues,就不把图片做成正方形了,而是把按照长边等比缩放到32的倍数,然后把短边用padding补到32的倍数
             # Sort by aspect ratio
             s = self.shapes  # wh
             ar = s[:, 1] / s[:, 0]  # aspect ratio
@@ -554,7 +554,7 @@ class LoadImagesAndLabels(Dataset):
         # Cache images into RAM/disk for faster training (WARNING: large datasets may exceed system resources)
         self.ims = [None] * n
         self.npy_files = [Path(f).with_suffix('.npy') for f in self.im_files]
-        if cache_images:
+        if cache_images:  # 把图片数据也放缓存来加速训练,有钱可以搞
             gb = 0  # Gigabytes of cached images
             self.im_hw0, self.im_hw = [None] * n, [None] * n
             fcn = self.cache_images_to_disk if cache_images == 'disk' else self.load_image
@@ -575,7 +575,7 @@ class LoadImagesAndLabels(Dataset):
         nm, nf, ne, nc, msgs = 0, 0, 0, 0, []  # number missing, found, empty, corrupt, messages
         desc = f"{prefix}Scanning '{path.parent / path.stem}' images and labels..."
         with Pool(NUM_THREADS) as pool:
-            pbar = tqdm(pool.imap(verify_image_label, zip(self.im_files, self.label_files, repeat(prefix))),
+            pbar = tqdm(pool.imap(verify_image_label, zip(self.im_files, self.label_files, repeat(prefix))),  # 把图片和label一对一对的做检查
                         desc=desc,
                         total=len(self.im_files),
                         bar_format=BAR_FORMAT)
@@ -600,7 +600,7 @@ class LoadImagesAndLabels(Dataset):
         x['msgs'] = msgs  # warnings
         x['version'] = self.cache_version  # cache version
         try:
-            np.save(path, x)  # save cache for next time
+            np.save(path, x)  # save cache for next time 把label信息缓存起来
             path.with_suffix('.cache.npy').rename(path)  # remove .npy suffix
             LOGGER.info(f'{prefix}New cache created: {path}')
         except Exception as e:
@@ -954,45 +954,45 @@ def autosplit(path=DATASETS_DIR / 'coco128/images', weights=(0.9, 0.1, 0.0), ann
 
 def verify_image_label(args):
     # Verify one image-label pair
-    im_file, lb_file, prefix = args
+    im_file, lb_file, prefix = args  # 图片文件,label文件,前缀
     nm, nf, ne, nc, msg, segments = 0, 0, 0, 0, '', []  # number (missing, found, empty, corrupt), message, segments
     try:
-        # verify images
+        # verify images 读取图片做下校验
         im = Image.open(im_file)
         im.verify()  # PIL verify
-        shape = exif_size(im)  # image size
+        shape = exif_size(im)  # image size 然后再校验下图片的规格还有图片的格式
         assert (shape[0] > 9) & (shape[1] > 9), f'image size {shape} <10 pixels'
         assert im.format.lower() in IMG_FORMATS, f'invalid image format {im.format}'
-        if im.format.lower() in ('jpg', 'jpeg'):
+        if im.format.lower() in ('jpg', 'jpeg'):  # 把有问题的jpg和jpeg做下修复
             with open(im_file, 'rb') as f:
                 f.seek(-2, 2)
                 if f.read() != b'\xff\xd9':  # corrupt JPEG
                     ImageOps.exif_transpose(Image.open(im_file)).save(im_file, 'JPEG', subsampling=0, quality=100)
                     msg = f'{prefix}WARNING ⚠️ {im_file}: corrupt JPEG restored and saved'
 
-        # verify labels
+        # verify labels 然后校验label文件
         if os.path.isfile(lb_file):
             nf = 1  # label found
-            with open(lb_file) as f:
+            with open(lb_file) as f:  # 按行把label信息分出来
                 lb = [x.split() for x in f.read().strip().splitlines() if len(x)]
-                if any(len(x) > 6 for x in lb):  # is segment
+                if any(len(x) > 6 for x in lb):  # is segment 如果标注信息的结构是坐标点的话就转成sywh的模式
                     classes = np.array([x[0] for x in lb], dtype=np.float32)
                     segments = [np.array(x[1:], dtype=np.float32).reshape(-1, 2) for x in lb]  # (cls, xy1...)
                     lb = np.concatenate((classes.reshape(-1, 1), segments2boxes(segments)), 1)  # (cls, xywh)
                 lb = np.array(lb, dtype=np.float32)
             nl = len(lb)
-            if nl:
-                assert lb.shape[1] == 5, f'labels require 5 columns, {lb.shape[1]} columns detected'
-                assert (lb >= 0).all(), f'negative label values {lb[lb < 0]}'
-                assert (lb[:, 1:] <= 1).all(), f'non-normalized or out of bounds coordinates {lb[:, 1:][lb[:, 1:] > 1]}'
+            if nl:  # 如果有label信息就做下校验
+                assert lb.shape[1] == 5, f'labels require 5 columns, {lb.shape[1]} columns detected'  # label的维度是5,cls,xywh
+                assert (lb >= 0).all(), f'negative label values {lb[lb < 0]}'  # 数值上都是正数
+                assert (lb[:, 1:] <= 1).all(), f'non-normalized or out of bounds coordinates {lb[:, 1:][lb[:, 1:] > 1]}'  # 因为标注框是采用比例的模式,所以值应该都小于1
                 _, i = np.unique(lb, axis=0, return_index=True)
-                if len(i) < nl:  # duplicate row check
+                if len(i) < nl:  # duplicate row check 看有没有重复的数据
                     lb = lb[i]  # remove duplicates
                     if segments:
                         segments = [segments[x] for x in i]
                     msg = f'{prefix}WARNING ⚠️ {im_file}: {nl - len(i)} duplicate labels removed'
             else:
-                ne = 1  # label empty
+                ne = 1  # label empty label文件里没信息就置默认0
                 lb = np.zeros((0, 5), dtype=np.float32)
         else:
             nm = 1  # label missing
