@@ -451,8 +451,8 @@ class LoadImagesAndLabels(Dataset):
         self.image_weights = image_weights
         self.rect = False if image_weights else rect
         self.mosaic = self.augment and not self.rect  # load 4 images at a time into a mosaic (only during training) 要不要做马赛克,就是4张图拼一张
-        self.mosaic_border = [-img_size // 2, -img_size // 2]  # TODO:标记下
-        self.stride = stride  # 步长
+        self.mosaic_border = [-img_size // 2, -img_size // 2]  # 马赛克图片的边界,马赛克中心点应该落在这个边界里面
+        self.stride = stride  # 下采样总值
         self.path = path  # 图片路径
         self.albumentations = Albumentations(size=img_size) if augment else None  # 一些增强策略,有albumentations这个包才做
 
@@ -616,14 +616,14 @@ class LoadImagesAndLabels(Dataset):
     #     #self.shuffled_vector = np.random.permutation(self.nF) if self.augment else np.arange(self.nF)
     #     return self
 
-    def __getitem__(self, index):
+    def __getitem__(self, index):  # 拿数据的方法
         index = self.indices[index]  # linear, shuffled, or image_weights
 
         hyp = self.hyp
-        mosaic = self.mosaic and random.random() < hyp['mosaic']
+        mosaic = self.mosaic and random.random() < hyp['mosaic']  # 在做训练的时候,这里设置成必做马赛克了
         if mosaic:
             # Load mosaic
-            img, labels = self.load_mosaic(index)
+            img, labels = self.load_mosaic(index)  # 用一张主图,和随机的3张图来做马赛克
             shapes = None
 
             # MixUp augmentation
@@ -693,15 +693,15 @@ class LoadImagesAndLabels(Dataset):
     def load_image(self, i):
         # Loads 1 image from dataset index 'i', returns (im, original hw, resized hw)
         im, f, fn = self.ims[i], self.im_files[i], self.npy_files[i],
-        if im is None:  # not cached in RAM
-            if fn.exists():  # load npy
+        if im is None:  # not cached in RAM 没有缓存到内存里的话走这里
+            if fn.exists():  # load npy 有把图片做成np文件的话就读下,可以配置
                 im = np.load(fn)
             else:  # read image
-                im = cv2.imread(f)  # BGR
+                im = cv2.imread(f)  # BGR 啥都没缓存就直接opencv读图片了
                 assert im is not None, f'Image Not Found {f}'
-            h0, w0 = im.shape[:2]  # orig hw
-            r = self.img_size / max(h0, w0)  # ratio
-            if r != 1:  # if sizes are not equal
+            h0, w0 = im.shape[:2]  # orig hw 把原始长宽拿出来
+            r = self.img_size / max(h0, w0)  # ratio 算一下原始图片和网络设定图片的比例
+            if r != 1:  # if sizes are not equal 比例对不上的话就做下缩放
                 interp = cv2.INTER_LINEAR if (self.augment or r > 1) else cv2.INTER_AREA
                 im = cv2.resize(im, (int(w0 * r), int(h0 * r)), interpolation=interp)
             return im, (h0, w0), im.shape[:2]  # im, hw_original, hw_resized
@@ -716,15 +716,15 @@ class LoadImagesAndLabels(Dataset):
     def load_mosaic(self, index):
         # YOLOv5 4-mosaic loader. Loads 1 image + 3 random images into a 4-image mosaic
         labels4, segments4 = [], []
-        s = self.img_size
-        yc, xc = (int(random.uniform(-x, 2 * s + x)) for x in self.mosaic_border)  # mosaic center x, y
-        indices = [index] + random.choices(self.indices, k=3)  # 3 additional image indices
-        random.shuffle(indices)
+        s = self.img_size  # 输入图片的大小这里设置的是640
+        yc, xc = (int(random.uniform(-x, 2 * s + x)) for x in self.mosaic_border)  # mosaic center x, y 设定的边界里面随机选一个点作为马赛克的中心点
+        indices = [index] + random.choices(self.indices, k=3)  # 3 additional image indices 随机的选三张图片合起来拼马赛克图片
+        random.shuffle(indices)  # 一张一张的拼进去,就打乱下顺序
         for i, index in enumerate(indices):
             # Load image
-            img, _, (h, w) = self.load_image(index)
+            img, _, (h, w) = self.load_image(index)  # 得到图片,和等比缩放后的长宽
 
-            # place img in img4
+            # place img in img4,按从上到下,从左到右的把图片拼起来 TODO:还剩getitem和前向传播没搞
             if i == 0:  # top left
                 img4 = np.full((s * 2, s * 2, img.shape[2]), 114, dtype=np.uint8)  # base image with 4 tiles
                 x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc  # xmin, ymin, xmax, ymax (large image)
