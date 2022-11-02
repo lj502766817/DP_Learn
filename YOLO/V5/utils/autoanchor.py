@@ -16,12 +16,12 @@ from utils.general import LOGGER, colorstr
 PREFIX = colorstr('AutoAnchor: ')
 
 
-def check_anchor_order(m):
+def check_anchor_order(m):  # 看先验框是不是从大到小排的
     # Check anchor order against stride order for YOLOv5 Detect() module m, and correct if necessary
-    a = m.anchors.prod(-1).mean(-1).view(-1)  # mean anchor area per output layer
-    da = a[-1] - a[0]  # delta a
-    ds = m.stride[-1] - m.stride[0]  # delta s
-    if da and (da.sign() != ds.sign()):  # same order
+    a = m.anchors.prod(-1).mean(-1).view(-1)  # mean anchor area per output layer 三类先验框面积的平均值
+    da = a[-1] - a[0]  # delta a 最后一类先验框和第一类先验框面积的差
+    ds = m.stride[-1] - m.stride[0]  # delta s 特征图形状的差
+    if da and (da.sign() != ds.sign()):  # same order 首先面积差要是正的,然后形状差的正负要合面积差一样,不然就翻转先验框的排序
         LOGGER.info(f'{PREFIX}Reversing anchor order')
         m.anchors[:] = m.anchors.flip(0)
 
