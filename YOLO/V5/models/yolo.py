@@ -37,20 +37,20 @@ except ImportError:
 
 class Detect(nn.Module):
     # YOLOv5 Detect head for detection models
-    stride = None  # strides computed during build
+    stride = None  # strides computed during build 这个值在非训练模式下才会用到
     dynamic = False  # force grid reconstruction
     export = False  # export mode
 
     def __init__(self, nc=80, anchors=(), ch=(), inplace=True):  # detection layer
-        super().__init__()
-        self.nc = nc  # number of classes
-        self.no = nc + 5  # number of outputs per anchor
-        self.nl = len(anchors)  # number of detection layers
-        self.na = len(anchors[0]) // 2  # number of anchors
-        self.grid = [torch.empty(0) for _ in range(self.nl)]  # init grid
-        self.anchor_grid = [torch.empty(0) for _ in range(self.nl)]  # init anchor grid
-        self.register_buffer('anchors', torch.tensor(anchors).float().view(self.nl, -1, 2))  # shape(nl,na,2)
-        self.m = nn.ModuleList(nn.Conv2d(x, self.no * self.na, 1) for x in ch)  # output conv
+        super().__init__()  # 最后的检测输出层
+        self.nc = nc  # number of classes 分类数这里是2分类
+        self.no = nc + 5  # number of outputs per anchor 对每个框都有nc+xywhc个检测值
+        self.nl = len(anchors)  # number of detection layers 有多少种先验框,就是有多少种输出层
+        self.na = len(anchors[0]) // 2  # number of anchors 每种先验框都有多少个
+        self.grid = [torch.empty(0) for _ in range(self.nl)]  # init grid 根据先验框的种类去初始化grid TODO:哪个grid?
+        self.anchor_grid = [torch.empty(0) for _ in range(self.nl)]  # init anchor grid 一样初始化先验框的grid
+        self.register_buffer('anchors', torch.tensor(anchors).float().view(self.nl, -1, 2))  # shape(nl,na,2) 调整先验框的格式(先验框种类,每类里第几个,先验框长宽)然后放缓存里
+        self.m = nn.ModuleList(nn.Conv2d(x, self.no * self.na, 1) for x in ch)  # output conv 三类输出的conv2d,把最后[128, 256, 512]层的特征图都卷成21层的特征图
         self.inplace = inplace  # use inplace ops (e.g. slice assignment)
 
     def forward(self, x):
@@ -114,7 +114,7 @@ class BaseModel(nn.Module):
     def _forward_once(self, x, profile=False, visualize=False):
         y, dt = [], []  # outputs
         for m in self.model:
-            if m.f != -1:  # if not from previous layer
+            if m.f != -1:  # if not from previous layer 如果这m层不是只接着前面那层
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
             if profile:
                 self._profile_one_layer(m, x, dt)
@@ -183,22 +183,22 @@ class DetectionModel(BaseModel):
             LOGGER.info(f'Overriding model.yaml anchors with anchors={anchors}')
             self.yaml['anchors'] = round(anchors)  # override yaml value
         self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist 把yaml转换成模型
-        self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
+        self.names = [str(i) for i in range(self.yaml['nc'])]  # default names 分类值设置个默认值,这里的0,1,2...就对应配置文件分类的对应位置
         self.inplace = self.yaml.get('inplace', True)
 
         # Build strides, anchors
         m = self.model[-1]  # Detect()
-        if isinstance(m, (Detect, Segment)):
+        if isinstance(m, (Detect, Segment)):  # 如果最后一层是目标检测层的话就额外处理下
             s = 256  # 2x min stride
-            m.inplace = self.inplace
-            forward = lambda x: self.forward(x)[0] if isinstance(m, Segment) else self.forward(x)
-            m.stride = torch.tensor([s / x.shape[-2] for x in forward(torch.zeros(1, ch, s, s))])  # forward
+            m.inplace = self.inplace  # 把检测层的inplace覆盖掉
+            forward = lambda x: self.forward(x)[0] if isinstance(m, Segment) else self.forward(x)  # 根据最后一层是不是Segment来决定forward是哪个函数
+            m.stride = torch.tensor([s / x.shape[-2] for x in forward(torch.zeros(1, ch, s, s))])  # forward 这里计算出了最后输出层特征图的大小
             check_anchor_order(m)
-            m.anchors /= m.stride.view(-1, 1, 1)
-            self.stride = m.stride
-            self._initialize_biases()  # only run once
+            m.anchors /= m.stride.view(-1, 1, 1)  # 根据最终输出特征图把先验框做等比的缩放
+            self.stride = m.stride  # 覆盖一下stride
+            self._initialize_biases()  # only run once 初始化一下detec层的偏置项
 
-        # Init weights, biases
+        # Init weights, biases 对卷积层,bn层,激活函数的一些权重值做下初始化
         initialize_weights(self)
         self.info()
         LOGGER.info('')
@@ -343,12 +343,12 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         else:
             c2 = ch[f]
 
-        m_ = nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module 按照n次去实例化对应的模型,构建模型的序列 TODO:debug到Detect
+        m_ = nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module 按照n次去实例化对应的模型,构建模型的序列
         t = str(m)[8:-2].replace('__main__.', '')  # module type
         np = sum(x.numel() for x in m_.parameters())  # number params
         m_.i, m_.f, m_.type, m_.np = i, f, t, np  # attach index, 'from' index, type, number params
         LOGGER.info(f'{i:>3}{str(f):>18}{n_:>3}{np:10.0f}  {t:<40}{str(args):<30}')  # print
-        save.extend(x % i for x in ([f] if isinstance(f, int) else f) if x != -1)  # append to savelist
+        save.extend(x % i for x in ([f] if isinstance(f, int) else f) if x != -1)  # append to savelist 那些层的输出需要保存下来,后面做拼接和检测的时候要用
         layers.append(m_)
         if i == 0:
             ch = []
