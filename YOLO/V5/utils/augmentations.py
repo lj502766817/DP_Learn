@@ -149,14 +149,14 @@ def random_perspective(im,
                        scale=.1,
                        shear=10,
                        perspective=0.0,
-                       border=(0, 0)):
+                       border=(0, 0)):  # 各种增强策略
     # torchvision.transforms.RandomAffine(degrees=(-10, 10), translate=(0.1, 0.1), scale=(0.9, 1.1), shear=(-10, 10))
     # targets = [cls, xyxy]
 
-    height = im.shape[0] + border[0] * 2  # shape(h,w,c)
+    height = im.shape[0] + border[0] * 2  # shape(h,w,c) 把1280的那个合成大图最后就还原成640的格式
     width = im.shape[1] + border[1] * 2
 
-    # Center
+    # Center 使用系数矩阵来做各种居中,平移,旋转等等操作
     C = np.eye(3)
     C[0, 2] = -im.shape[1] / 2  # x translation (pixels)
     C[1, 2] = -im.shape[0] / 2  # y translation (pixels)
@@ -185,12 +185,12 @@ def random_perspective(im,
     T[1, 2] = random.uniform(0.5 - translate, 0.5 + translate) * height  # y translation (pixels)
 
     # Combined rotation matrix
-    M = T @ S @ R @ P @ C  # order of operations (right to left) is IMPORTANT
+    M = T @ S @ R @ P @ C  # order of operations (right to left) is IMPORTANT,最后把所有系数矩阵乘一起,就是一个综合的仿射变换矩阵
     if (border[0] != 0) or (border[1] != 0) or (M != np.eye(3)).any():  # image changed
         if perspective:
             im = cv2.warpPerspective(im, M, dsize=(width, height), borderValue=(114, 114, 114))
         else:  # affine
-            im = cv2.warpAffine(im, M[:2], dsize=(width, height), borderValue=(114, 114, 114))
+            im = cv2.warpAffine(im, M[:2], dsize=(width, height), borderValue=(114, 114, 114))  # 用OpenCV做变换
 
     # Visualize
     # import matplotlib.pyplot as plt
@@ -200,7 +200,7 @@ def random_perspective(im,
 
     # Transform label coordinates
     n = len(targets)
-    if n:
+    if n:  # 图片做了变换,那么标签也要跟着变了
         use_segments = any(x.any() for x in segments)
         new = np.zeros((n, 4))
         if use_segments:  # warp segments
@@ -240,7 +240,7 @@ def random_perspective(im,
 def copy_paste(im, labels, segments, p=0.5):
     # Implement Copy-Paste augmentation https://arxiv.org/abs/2012.07177, labels as nx5 np.array(cls, xyxy)
     n = len(segments)
-    if p and n:
+    if p and n:  # 当前设置进不来
         h, w, c = im.shape  # height, width, channels
         im_new = np.zeros(im.shape, np.uint8)
         for j in random.sample(range(n), k=round(p * n)):

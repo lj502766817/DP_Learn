@@ -627,7 +627,7 @@ class LoadImagesAndLabels(Dataset):
             shapes = None
 
             # MixUp augmentation
-            if random.random() < hyp['mixup']:
+            if random.random() < hyp['mixup']:  # 现在的设置不做这个
                 img, labels = mixup(img, labels, *self.load_mosaic(random.randint(0, self.n - 1)))
 
         else:
@@ -653,15 +653,15 @@ class LoadImagesAndLabels(Dataset):
                                                  perspective=hyp['perspective'])
 
         nl = len(labels)  # number of labels
-        if nl:
+        if nl:  # 改变下标注的格式,坐标点变中心点和长宽
             labels[:, 1:5] = xyxy2xywhn(labels[:, 1:5], w=img.shape[1], h=img.shape[0], clip=True, eps=1E-3)
 
         if self.augment:
             # Albumentations
-            img, labels = self.albumentations(img, labels)
+            img, labels = self.albumentations(img, labels)  # 没有这个包,这里会跳过
             nl = len(labels)  # update after albumentations
 
-            # HSV color-space
+            # HSV color-space h:色调 s:饱和度 V:亮度 色彩的增强
             augment_hsv(img, hgain=hyp['hsv_h'], sgain=hyp['hsv_s'], vgain=hyp['hsv_v'])
 
             # Flip up-down
@@ -685,8 +685,8 @@ class LoadImagesAndLabels(Dataset):
             labels_out[:, 1:] = torch.from_numpy(labels)
 
         # Convert
-        img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
-        img = np.ascontiguousarray(img)
+        img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB,把图像转换成pytorch能处理的图像格式
+        img = np.ascontiguousarray(img)  # 这是用np的函数把内存不连续的数组处理成内存连续的,起到加速作用
 
         return torch.from_numpy(img), labels_out, self.im_files[index], shapes
 
@@ -724,11 +724,11 @@ class LoadImagesAndLabels(Dataset):
             # Load image
             img, _, (h, w) = self.load_image(index)  # 得到图片,和等比缩放后的长宽
 
-            # place img in img4,按从上到下,从左到右的把图片拼起来 TODO:还剩getitem和前向传播没搞
+            # place img in img4,按从上到下,从左到右的把图片拼起来,对比着中心点拼
             if i == 0:  # top left
-                img4 = np.full((s * 2, s * 2, img.shape[2]), 114, dtype=np.uint8)  # base image with 4 tiles
-                x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc  # xmin, ymin, xmax, ymax (large image)
-                x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h  # xmin, ymin, xmax, ymax (small image)
+                img4 = np.full((s * 2, s * 2, img.shape[2]), 114, dtype=np.uint8)  # base image with 4 tiles 如果是第一个图的话就先初始化马赛克图,尺寸就输入图片*2
+                x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc  # xmin, ymin, xmax, ymax (large image) 第一张图需要放到马赛克图的位置
+                x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h  # xmin, ymin, xmax, ymax (small image) 第一张图用到的部分,图超过了中心点左上部分就会截取
             elif i == 1:  # top right
                 x1a, y1a, x2a, y2a = xc, max(yc - h, 0), min(xc + w, s * 2), yc
                 x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), h
@@ -739,27 +739,27 @@ class LoadImagesAndLabels(Dataset):
                 x1a, y1a, x2a, y2a = xc, yc, min(xc + w, s * 2), min(s * 2, yc + h)
                 x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
 
-            img4[y1a:y2a, x1a:x2a] = img[y1b:y2b, x1b:x2b]  # img4[ymin:ymax, xmin:xmax]
-            padw = x1a - x1b
+            img4[y1a:y2a, x1a:x2a] = img[y1b:y2b, x1b:x2b]  # img4[ymin:ymax, xmin:xmax] 把图片阴到马赛克图上去
+            padw = x1a - x1b  # 这里计算pad,后面处理label的时候要用
             padh = y1a - y1b
 
-            # Labels
+            # Labels 把图片印到马赛克图上后,对应图的label也要处理下了
             labels, segments = self.labels[index].copy(), self.segments[index].copy()
             if labels.size:
                 labels[:, 1:] = xywhn2xyxy(labels[:, 1:], w, h, padw, padh)  # normalized xywh to pixel xyxy format
                 segments = [xyn2xy(x, w, h, padw, padh) for x in segments]
-            labels4.append(labels)
+            labels4.append(labels)  # 把处理好的label加进去
             segments4.extend(segments)
 
-        # Concat/clip labels
+        # Concat/clip labels 把label拼到一起
         labels4 = np.concatenate(labels4, 0)
         for x in (labels4[:, 1:], *segments4):
             np.clip(x, 0, 2 * s, out=x)  # clip when using random_perspective()
         # img4, labels4 = replicate(img4, labels4)  # replicate
 
-        # Augment
+        # Augment 增强策略
         img4, labels4, segments4 = copy_paste(img4, labels4, segments4, p=self.hyp['copy_paste'])
-        img4, labels4 = random_perspective(img4,
+        img4, labels4 = random_perspective(img4,  # 对合成后的图片再做下基础的图像增强操作
                                            labels4,
                                            segments4,
                                            degrees=self.hyp['degrees'],
