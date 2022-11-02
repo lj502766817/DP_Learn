@@ -115,7 +115,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     # Model
     check_suffix(weights, '.pt')  # check weights
     pretrained = weights.endswith('.pt')
-    if pretrained:
+    if pretrained:  # 有没有预训练模型
         with torch_distributed_zero_first(LOCAL_RANK):
             weights = attempt_download(weights)  # download if not found locally
         ckpt = torch.load(weights, map_location='cpu')  # load checkpoint to CPU to avoid CUDA memory leak
@@ -130,7 +130,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     amp = check_amp(model)  # check AMP
 
     # Freeze
-    freeze = [f'model.{x}.' for x in (freeze if len(freeze) > 1 else range(freeze[0]))]  # layers to freeze
+    freeze = [f'model.{x}.' for x in (freeze if len(freeze) > 1 else range(freeze[0]))]  # layers to freeze 这里要不要冻住某些层来迁移学习
     for k, v in model.named_parameters():
         v.requires_grad = True  # train all layers
         # v.register_hook(lambda x: torch.nan_to_num(x))  # NaN to 0 (commented for erratic training results)
@@ -139,49 +139,49 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
             v.requires_grad = False
 
     # Image size
-    gs = max(int(model.stride.max()), 32)  # grid size (max stride)
-    imgsz = check_img_size(opt.imgsz, gs, floor=gs * 2)  # verify imgsz is gs-multiple
+    gs = max(int(model.stride.max()), 32)  # grid size (max stride) 最大的grid大小,最低是32*32的grid
+    imgsz = check_img_size(opt.imgsz, gs, floor=gs * 2)  # verify imgsz is gs-multiple  图片的格式是要能整除grid的格式
 
     # Batch size
     if RANK == -1 and batch_size == -1:  # single-GPU only, estimate best batch size
         batch_size = check_train_batch_size(model, imgsz, amp)
         loggers.on_params_update({"batch_size": batch_size})
 
-    # Optimizer
+    # Optimizer 优化器
     nbs = 64  # nominal batch size
-    accumulate = max(round(nbs / batch_size), 1)  # accumulate loss before optimizing
+    accumulate = max(round(nbs / batch_size), 1)  # accumulate loss before optimizing 累计多少次更新一次模型，迭代多少次才去更新一次模型参数，相当于扩大batch
     hyp['weight_decay'] *= batch_size * accumulate / nbs  # scale weight_decay
     optimizer = smart_optimizer(model, opt.optimizer, hyp['lr0'], hyp['momentum'], hyp['weight_decay'])
 
-    # Scheduler
+    # Scheduler 衰减策略 看看这个 https://arxiv.org/pdf/1812.01187.pdf https://pytorch.org/docs/stable/_modules/torch/optim/lr_scheduler.html#OneCycleLR
     if opt.cos_lr:
         lf = one_cycle(1, hyp['lrf'], epochs)  # cosine 1->hyp['lrf']
     else:
         lf = lambda x: (1 - x / epochs) * (1.0 - hyp['lrf']) + hyp['lrf']  # linear
     scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)  # plot_lr_scheduler(optimizer, scheduler, epochs)
 
-    # EMA
+    # EMA 滑动平均能让参数更新的更平滑一点不至于波动太大 看看这个 https://www.jianshu.com/p/f99f982ad370
     ema = ModelEMA(model) if RANK in {-1, 0} else None
 
-    # Resume
+    # Resume 一些复位的设置
     best_fitness, start_epoch = 0.0, 0
     if pretrained:
         if resume:
             best_fitness, start_epoch, epochs = smart_resume(ckpt, optimizer, ema, weights, epochs, resume)
         del ckpt, csd
 
-    # DP mode
+    # DP mode 单机多卡模式,这里都说了别用
     if cuda and RANK == -1 and torch.cuda.device_count() > 1:
         LOGGER.warning('WARNING ⚠️ DP not recommended, use torch.distributed.run for best DDP Multi-GPU results.\n'
                        'See Multi-GPU Tutorial at https://github.com/ultralytics/yolov5/issues/475 to get started.')
         model = torch.nn.DataParallel(model)
 
-    # SyncBatchNorm
+    # SyncBatchNorm 多卡同步做BN
     if opt.sync_bn and cuda and RANK != -1:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model).to(device)
         LOGGER.info('Using SyncBatchNorm()')
 
-    # Trainloader
+    # Trainloader 创建数据的loader
     train_loader, dataset = create_dataloader(train_path,
                                               imgsz,
                                               batch_size // WORLD_SIZE,
@@ -223,11 +223,11 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
 
         callbacks.run('on_pretrain_routine_end', labels, names)
 
-    # DDP mode
+    # DDP mode 多机多卡模式,单机多卡也能用
     if cuda and RANK != -1:
         model = smart_DDP(model)
 
-    # Model attributes
+    # Model attributes 一些参数的设置
     nl = de_parallel(model).model[-1].nl  # number of detection layers (to scale hyps)
     hyp['box'] *= 3 / nl  # scale to layers
     hyp['cls'] *= nc / 80 * 3 / nl  # scale to classes and layers
@@ -241,7 +241,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     # Start training
     t0 = time.time()
     nb = len(train_loader)  # number of batches
-    nw = max(round(hyp['warmup_epochs'] * nb), 100)  # number of warmup iterations, max(3 epochs, 100 iterations)
+    nw = max(round(hyp['warmup_epochs'] * nb), 100)  # number of warmup iterations, max(3 epochs, 100 iterations) 热身的配置
     # nw = min(nw, (epochs - start_epoch) / 2 * nb)  # limit warmup to < 1/2 of training
     last_opt_step = -1
     maps = np.zeros(nc)  # mAP per class
@@ -272,7 +272,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         mloss = torch.zeros(3, device=device)  # mean losses
         if RANK != -1:
             train_loader.sampler.set_epoch(epoch)
-        pbar = enumerate(train_loader)
+        pbar = enumerate(train_loader)  # 训练的进度条
         LOGGER.info(('\n' + '%11s' * 7) % ('Epoch', 'GPU_mem', 'box_loss', 'obj_loss', 'cls_loss', 'Instances', 'Size'))
         if RANK in {-1, 0}:
             pbar = tqdm(pbar, total=nb, bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}')  # progress bar
@@ -280,9 +280,9 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
             callbacks.run('on_train_batch_start')
             ni = i + nb * epoch  # number integrated batches (since train start)
-            imgs = imgs.to(device, non_blocking=True).float() / 255  # uint8 to float32, 0-255 to 0.0-1.0
+            imgs = imgs.to(device, non_blocking=True).float() / 255  # uint8 to float32, 0-255 to 0.0-1.0 这里把输入图像做了个归一化
 
-            # Warmup
+            # Warmup 热身
             if ni <= nw:
                 xi = [0, nw]  # x interp
                 # compute_loss.gr = np.interp(ni, xi, [0.0, 1.0])  # iou loss ratio (obj_loss = 1.0 or iou)
@@ -293,7 +293,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                     if 'momentum' in x:
                         x['momentum'] = np.interp(ni, xi, [hyp['warmup_momentum'], hyp['momentum']])
 
-            # Multi-scale
+            # Multi-scale 要不要做多尺度的训练
             if opt.multi_scale:
                 sz = random.randrange(imgsz * 0.5, imgsz * 1.5 + gs) // gs * gs  # size
                 sf = sz / max(imgs.shape[2:])  # scale factor
@@ -302,8 +302,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                     imgs = nn.functional.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
 
             # Forward
-            with torch.cuda.amp.autocast(amp):
-                pred = model(imgs)  # forward
+            with torch.cuda.amp.autocast(amp):  # 混合精度,可以加快速度.通常我们数据格式是float32的,但是实际用不到这么多,然后pytorch的混合精度可以用float16去跑
+                pred = model(imgs)  # forward 前向传播
                 loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
                 if RANK != -1:
                     loss *= WORLD_SIZE  # gradient averaged between devices in DDP mode
@@ -427,31 +427,31 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     return results
 
 
-def parse_opt(known=False):  # --data ../MaskDataSet/data.yaml --cfg yolov5s.yaml --weights '' --batch-size 128
+def parse_opt(known=False):  # --data ../MaskDataSet/data.yaml --cfg yolov5s.yaml --weights '' --workers 0 --batch-size 128
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', type=str, default=ROOT / 'yolov5s.pt', help='initial weights path')
-    parser.add_argument('--cfg', type=str, default='', help='model.yaml path')
-    parser.add_argument('--data', type=str, default=ROOT / 'data/coco128.yaml', help='dataset.yaml path')
+    parser.add_argument('--cfg', type=str, default='', help='model.yaml path')  # 网络配置
+    parser.add_argument('--data', type=str, default=ROOT / 'data/coco128.yaml', help='dataset.yaml path')  # 数据
     parser.add_argument('--hyp', type=str, default=ROOT / 'data/hyps/hyp.scratch-low.yaml', help='hyperparameters path')
     parser.add_argument('--epochs', type=int, default=300, help='total training epochs')
     parser.add_argument('--batch-size', type=int, default=16, help='total batch size for all GPUs, -1 for autobatch')
     parser.add_argument('--imgsz', '--img', '--img-size', type=int, default=640, help='train, val image size (pixels)')
-    parser.add_argument('--rect', action='store_true', help='rectangular training')
-    parser.add_argument('--resume', nargs='?', const=True, default=False, help='resume most recent training')
-    parser.add_argument('--nosave', action='store_true', help='only save final checkpoint')
+    parser.add_argument('--rect', action='store_true', help='rectangular training')  # 矩形训练
+    parser.add_argument('--resume', nargs='?', const=True, default=False, help='resume most recent training')  # 接着之前的训练
+    parser.add_argument('--nosave', action='store_true', help='only save final checkpoint')  # 不保存
     parser.add_argument('--noval', action='store_true', help='only validate final epoch')
-    parser.add_argument('--noautoanchor', action='store_true', help='disable AutoAnchor')
+    parser.add_argument('--noautoanchor', action='store_true', help='disable AutoAnchor')  # 是否调整候选框
     parser.add_argument('--noplots', action='store_true', help='save no plot files')
-    parser.add_argument('--evolve', type=int, nargs='?', const=300, help='evolve hyperparameters for x generations')
+    parser.add_argument('--evolve', type=int, nargs='?', const=300, help='evolve hyperparameters for x generations')  # 超参数更新
     parser.add_argument('--bucket', type=str, default='', help='gsutil bucket')
     parser.add_argument('--cache', type=str, nargs='?', const='ram', help='--cache images in "ram" (default) or "disk"')
     parser.add_argument('--image-weights', action='store_true', help='use weighted image selection for training')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-    parser.add_argument('--multi-scale', action='store_true', help='vary img-size +/- 50%%')
-    parser.add_argument('--single-cls', action='store_true', help='train multi-class data as single-class')
-    parser.add_argument('--optimizer', type=str, choices=['SGD', 'Adam', 'AdamW'], default='SGD', help='optimizer')
-    parser.add_argument('--sync-bn', action='store_true', help='use SyncBatchNorm, only available in DDP mode')
-    parser.add_argument('--workers', type=int, default=8, help='max dataloader workers (per RANK in DDP mode)')
+    parser.add_argument('--multi-scale', action='store_true', help='vary img-size +/- 50%%')  # 是否多尺度训练
+    parser.add_argument('--single-cls', action='store_true', help='train multi-class data as single-class')  # 是否是单个类别
+    parser.add_argument('--optimizer', type=str, choices=['SGD', 'Adam', 'AdamW'], default='SGD', help='optimizer')  # 优化器的选择
+    parser.add_argument('--sync-bn', action='store_true', help='use SyncBatchNorm, only available in DDP mode')  # 跨GPU的BN
+    parser.add_argument('--workers', type=int, default=8, help='max dataloader workers (per RANK in DDP mode)')  # 多线程数量,调试的时候还是用0吧,实际会根据用的CPU来定
     parser.add_argument('--project', default=ROOT / 'runs/train', help='save to project/name')
     parser.add_argument('--name', default='exp', help='save to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
