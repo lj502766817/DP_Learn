@@ -47,17 +47,17 @@ class Detect(nn.Module):
         self.no = nc + 5  # number of outputs per anchor 对每个框都有nc+xywhc个检测值
         self.nl = len(anchors)  # number of detection layers 有多少种先验框,就是有多少种输出层
         self.na = len(anchors[0]) // 2  # number of anchors 每种先验框都有多少个
-        self.grid = [torch.empty(0) for _ in range(self.nl)]  # init grid 根据先验框的种类去初始化grid TODO:哪个grid?
+        self.grid = [torch.empty(0) for _ in range(self.nl)]  # init grid 根据先验框的种类去初始化最后特征图的grid cell
         self.anchor_grid = [torch.empty(0) for _ in range(self.nl)]  # init anchor grid 一样初始化先验框的grid
         self.register_buffer('anchors', torch.tensor(anchors).float().view(self.nl, -1, 2))  # shape(nl,na,2) 调整先验框的格式(先验框种类,每类里第几个,先验框长宽)然后放缓存里
         self.m = nn.ModuleList(nn.Conv2d(x, self.no * self.na, 1) for x in ch)  # output conv 三类输出的conv2d,把最后[128, 256, 512]层的特征图都卷成21层的特征图
         self.inplace = inplace  # use inplace ops (e.g. slice assignment)
 
-    def forward(self, x):
+    def forward(self, x):  # 按当前设置,输入是处理过的3类特征图[(16,128,80,80),(16,256,40,40),(16,512,20,20)],分别对应小,中,大三种框
         z = []  # inference output
         for i in range(self.nl):
-            x[i] = self.m[i](x[i])  # conv
-            bs, _, ny, nx = x[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
+            x[i] = self.m[i](x[i])  # conv 把输入卷成21层的特征图(3个框,xywhc,2分类)
+            bs, _, ny, nx = x[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)  # 把特征向量拆成3个先验框的
             x[i] = x[i].view(bs, self.na, self.no, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
 
             if not self.training:  # inference
@@ -69,14 +69,14 @@ class Detect(nn.Module):
                     xy = (xy.sigmoid() * 2 + self.grid[i]) * self.stride[i]  # xy
                     wh = (wh.sigmoid() * 2) ** 2 * self.anchor_grid[i]  # wh
                     y = torch.cat((xy, wh, conf.sigmoid(), mask), 4)
-                else:  # Detect (boxes only)
+                else:  # Detect (boxes only)  不是训练模式下才进来
                     xy, wh, conf = x[i].sigmoid().split((2, 2, self.nc + 1), 4)
                     xy = (xy * 2 + self.grid[i]) * self.stride[i]  # xy
                     wh = (wh * 2) ** 2 * self.anchor_grid[i]  # wh
                     y = torch.cat((xy, wh, conf), 4)
                 z.append(y.view(bs, self.na * nx * ny, self.no))
 
-        return x if self.training else (torch.cat(z, 1),) if self.export else (torch.cat(z, 1), x)
+        return x if self.training else (torch.cat(z, 1),) if self.export else (torch.cat(z, 1), x)  # 训练模式就直接返回出去计算损失
 
     def _make_grid(self, nx=20, ny=20, i=0, torch_1_10=check_version(torch.__version__, '1.10.0')):
         d = self.anchors[i].device
@@ -113,13 +113,13 @@ class BaseModel(nn.Module):
 
     def _forward_once(self, x, profile=False, visualize=False):
         y, dt = [], []  # outputs
-        for m in self.model:
+        for m in self.model:  # 一层一层的去跑
             if m.f != -1:  # if not from previous layer 如果这m层不是只接着前面那层
-                x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
+                x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers 比如Concat层就是从前面一层的结果x,和从y里面拿的更早层的结果组一起进行前向传播
             if profile:
                 self._profile_one_layer(m, x, dt)
-            x = m(x)  # run
-            y.append(x if m.i in self.save else None)  # save output
+            x = m(x)  # run 前向传播
+            y.append(x if m.i in self.save else None)  # save output 这一层的结果需不需要保存下来
             if visualize:
                 feature_visualization(x, m.type, m.i, save_dir=visualize)
         return x
