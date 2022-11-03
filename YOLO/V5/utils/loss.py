@@ -97,11 +97,11 @@ class ComputeLoss:
         h = model.hyp  # hyperparameters
 
         # Define criteria
-        BCEcls = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['cls_pw']], device=device))
+        BCEcls = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['cls_pw']], device=device))  # 为了可以多标签,把多分类任务拆成多个二分类任务,bceloss就是二分类的loss
         BCEobj = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['obj_pw']], device=device))
 
         # Class label smoothing https://arxiv.org/pdf/1902.04103.pdf eqn 3
-        self.cp, self.cn = smooth_BCE(eps=h.get('label_smoothing', 0.0))  # positive, negative BCE targets
+        self.cp, self.cn = smooth_BCE(eps=h.get('label_smoothing', 0.0))  # positive, negative BCE targets 标签平滑
 
         # Focal loss
         g = h['fl_gamma']  # focal loss gamma
@@ -112,16 +112,16 @@ class ComputeLoss:
         self.balance = {3: [4.0, 1.0, 0.4]}.get(m.nl, [4.0, 1.0, 0.25, 0.06, 0.02])  # P3-P7
         self.ssi = list(m.stride).index(16) if autobalance else 0  # stride 16 index
         self.BCEcls, self.BCEobj, self.gr, self.hyp, self.autobalance = BCEcls, BCEobj, 1.0, h, autobalance
-        self.na = m.na  # number of anchors
-        self.nc = m.nc  # number of classes
-        self.nl = m.nl  # number of layers
+        self.na = m.na  # number of anchors 先验框的种类
+        self.nc = m.nc  # number of classes 目标的类别
+        self.nl = m.nl  # number of layers 输出层个数
         self.anchors = m.anchors
         self.device = device
 
     def __call__(self, p, targets):  # predictions, targets
-        lcls = torch.zeros(1, device=self.device)  # class loss
-        lbox = torch.zeros(1, device=self.device)  # box loss
-        lobj = torch.zeros(1, device=self.device)  # object loss
+        lcls = torch.zeros(1, device=self.device)  # class loss 分类的损失
+        lbox = torch.zeros(1, device=self.device)  # box loss 检测框的损失
+        lobj = torch.zeros(1, device=self.device)  # object loss  有没有物体
         tcls, tbox, indices, anchors = self.build_targets(p, targets)  # targets
 
         # Losses
@@ -176,11 +176,11 @@ class ComputeLoss:
 
     def build_targets(self, p, targets):
         # Build targets for compute_loss(), input targets(image,class,x,y,w,h)
-        na, nt = self.na, targets.shape[0]  # number of anchors, targets
+        na, nt = self.na, targets.shape[0]  # number of anchors, targets 先验框数量3个,检测框标签148个
         tcls, tbox, indices, anch = [], [], [], []
-        gain = torch.ones(7, device=self.device)  # normalized to gridspace gain
-        ai = torch.arange(na, device=self.device).float().view(na, 1).repeat(1, nt)  # same as .repeat_interleave(nt)
-        targets = torch.cat((targets.repeat(na, 1, 1), ai[..., None]), 2)  # append anchor indices
+        gain = torch.ones(7, device=self.device)  # normalized to gridspace gain 初始化特征图维度的标签比例数据
+        ai = torch.arange(na, device=self.device).float().view(na, 1).repeat(1, nt)  # same as .repeat_interleave(nt) (3)->(3,1)->(3,148),三种先验框,每种先验框有148个备选标签
+        targets = torch.cat((targets.repeat(na, 1, 1), ai[..., None]), 2)  # append anchor indices (3,148,7) 把target处理成三种候选框,每种148个备选标签,标签是由7个数组成
 
         g = 0.5  # bias
         off = torch.tensor(
@@ -194,15 +194,15 @@ class ComputeLoss:
             ],
             device=self.device).float() * g  # offsets
 
-        for i in range(self.nl):
-            anchors, shape = self.anchors[i], p[i].shape
-            gain[2:6] = torch.tensor(shape)[[3, 2, 3, 2]]  # xyxy gain
+        for i in range(self.nl):  # 从第一类先验框一个个去迭代
+            anchors, shape = self.anchors[i], p[i].shape  # 把第一类先验框和第一类检测输出的格式拿到
+            gain[2:6] = torch.tensor(shape)[[3, 2, 3, 2]]  # xyxy gain 把特征图的w,h大小填上去
 
-            # Match targets to anchors
-            t = targets * gain  # shape(3,n,7)
-            if nt:
+            # Match targets to anchors ,这里算哪些label属于哪种先验框
+            t = targets * gain  # shape(3,n,7) 计算出label在输出特征图上的坐标,中心点位置,检测框长宽
+            if nt:  # 有label就继续处理
                 # Matches
-                r = t[..., 4:6] / anchors[:, None]  # wh ratio
+                r = t[..., 4:6] / anchors[:, None]  # wh ratio 长宽和先验框的比值 TODO:还剩loss没搞
                 j = torch.max(r, 1 / r).max(2)[0] < self.hyp['anchor_t']  # compare
                 # j = wh_iou(anchors, t[:, 4:6]) > model.hyp['iou_t']  # iou(3,n)=wh_iou(anchors(3,2), gwh(n,2))
                 t = t[j]  # filter
