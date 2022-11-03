@@ -54,7 +54,7 @@ class Conv(nn.Module):
         self.act = self.default_act if act is True else act if isinstance(act, nn.Module) else nn.Identity()
 
     def forward(self, x):
-        return self.act(self.bn(self.conv(x)))
+        return self.act(self.bn(self.conv(x)))  # 先卷,卷完做bn,再激活
 
     def forward_fuse(self, x):
         return self.act(self.conv(x))
@@ -118,7 +118,7 @@ class Bottleneck(nn.Module):
         self.add = shortcut and c1 == c2
 
     def forward(self, x):
-        return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
+        return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))  # 直接卷积或者残差连接
 
 
 class BottleneckCSP(nn.Module):
@@ -165,7 +165,7 @@ class C3(nn.Module):
         self.m = nn.Sequential(*(Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)))
 
     def forward(self, x):
-        return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), 1))
+        return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), 1))  # 一个做卷积,一个走Bottleneck,最后合起来做个卷积
 
 
 class C3x(C3):
@@ -226,12 +226,12 @@ class SPPF(nn.Module):
         self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)  # yolo5里的spp是制作一次maxpool
 
     def forward(self, x):
-        x = self.cv1(x)
+        x = self.cv1(x)  # 先通过卷积把特征图减半
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')  # suppress torch 1.9.0 max_pool2d() warning
-            y1 = self.m(x)
-            y2 = self.m(y1)
-            return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
+            y1 = self.m(x)  # k=5的maxpool
+            y2 = self.m(y1)  # 这个等价于k=9的maxpool
+            return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))  # 最后就把各种感受野的特征图拼一起
 
 
 class Focus(nn.Module):
