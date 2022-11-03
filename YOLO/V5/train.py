@@ -303,7 +303,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
 
             # Forward
             with torch.cuda.amp.autocast(amp):  # 混合精度,可以加快速度.通常我们数据格式是float32的,但是实际用不到这么多,然后pytorch的混合精度可以用float16去跑
-                pred = model(imgs)  # forward 前向传播 TODO:还剩前向传播
+                pred = model(imgs)  # forward 前向传播
                 loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
                 if RANK != -1:
                     loss *= WORLD_SIZE  # gradient averaged between devices in DDP mode
