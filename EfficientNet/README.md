@@ -26,3 +26,9 @@
 
 ![MBConv](https://user-images.githubusercontent.com/28779173/199904699-fc21be11-139e-4db6-8a44-308462d52bfb.png)
 
+### EfficientDet
+
+以EfficientNet做backbone的目标检测网络.整体的网络结构就是EfficientNet+BiFPN.
+
+#### BiFPN
+
