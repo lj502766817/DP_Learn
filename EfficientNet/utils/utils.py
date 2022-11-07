@@ -1,314 +1,322 @@
-# Author: Zylo117
+"""
+This file contains helper functions for building the model and for loading model parameters.
+These helper functions are built to mirror those in the official TensorFlow implementation.
+"""
 
+import re
 import math
-import os
-import uuid
-from glob import glob
-from typing import Union
-
-import cv2
-import numpy as np
+import collections
+from functools import partial
 import torch
-import webcolors
 from torch import nn
-from torch.nn.init import _calculate_fan_in_and_fan_out, _no_grad_normal_
-from torchvision.ops.boxes import batched_nms
+from torch.nn import functional as F
+from torch.utils import model_zoo
+from .utils_extra import Conv2dStaticSamePadding
 
-from utils.sync_batchnorm import SynchronizedBatchNorm2d
-
-
-def invert_affine(metas: Union[float, list, tuple], preds):
-    for i in range(len(preds)):
-        if len(preds[i]['rois']) == 0:
-            continue
-        else:
-            if metas is float:
-                preds[i]['rois'][:, [0, 2]] = preds[i]['rois'][:, [0, 2]] / metas
-                preds[i]['rois'][:, [1, 3]] = preds[i]['rois'][:, [1, 3]] / metas
-            else:
-                new_w, new_h, old_w, old_h, padding_w, padding_h = metas[i]
-                preds[i]['rois'][:, [0, 2]] = preds[i]['rois'][:, [0, 2]] / (new_w / old_w)
-                preds[i]['rois'][:, [1, 3]] = preds[i]['rois'][:, [1, 3]] / (new_h / old_h)
-    return preds
+########################################################################
+############### HELPERS FUNCTIONS FOR MODEL ARCHITECTURE ###############
+########################################################################
 
 
-def aspectaware_resize_padding(image, width, height, interpolation=None, means=None):
-    old_h, old_w, c = image.shape
-    if old_w > old_h:
-        new_w = width
-        new_h = int(width / old_w * old_h)
+# Parameters for the entire model (stem, all blocks, and head)
+
+GlobalParams = collections.namedtuple('GlobalParams', [
+    'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
+    'num_classes', 'width_coefficient', 'depth_coefficient',
+    'depth_divisor', 'min_depth', 'drop_connect_rate', 'image_size'])
+
+# Parameters for an individual model block
+BlockArgs = collections.namedtuple('BlockArgs', [
+    'kernel_size', 'num_repeat', 'input_filters', 'output_filters',
+    'expand_ratio', 'id_skip', 'stride', 'se_ratio'])
+
+# Change namedtuple defaults
+GlobalParams.__new__.__defaults__ = (None,) * len(GlobalParams._fields)
+BlockArgs.__new__.__defaults__ = (None,) * len(BlockArgs._fields)
+
+
+class SwishImplementation(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, i):
+        result = i * torch.sigmoid(i)
+        ctx.save_for_backward(i)
+        return result
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        i = ctx.saved_variables[0]
+        sigmoid_i = torch.sigmoid(i)
+        return grad_output * (sigmoid_i * (1 + i * (1 - sigmoid_i)))
+
+
+class MemoryEfficientSwish(nn.Module):
+    def forward(self, x):
+        return SwishImplementation.apply(x)
+
+
+class Swish(nn.Module):
+    def forward(self, x):
+        return x * torch.sigmoid(x)
+
+
+def round_filters(filters, global_params):  # 根据全局的系数计算四舍五入之后的卷积核的个数
+    """ Calculate and round number of filters based on depth multiplier. """
+    multiplier = global_params.width_coefficient  # 全的特征图个数系数
+    if not multiplier:
+        return filters
+    divisor = global_params.depth_divisor  # 除数因子,保证特征图是8的倍数
+    min_depth = global_params.min_depth
+    filters *= multiplier
+    min_depth = min_depth or divisor  # 如果没设置最小深度就用除数因子代替
+    new_filters = max(min_depth, int(filters + divisor / 2) // divisor * divisor)  # 新的特征图个数,最少8个
+    if new_filters < 0.9 * filters:  # prevent rounding by more than 10%
+        new_filters += divisor
+    return int(new_filters)
+
+
+def round_repeats(repeats, global_params):
+    """ Round number of filters based on depth multiplier. """
+    multiplier = global_params.depth_coefficient
+    if not multiplier:
+        return repeats
+    return int(math.ceil(multiplier * repeats))
+
+
+def drop_connect(inputs, p, training):
+    """ Drop connect. """
+    if not training: return inputs  # 非训练模式下不做这个
+    batch_size = inputs.shape[0]
+    keep_prob = 1 - p  # 需要保留的比例
+    random_tensor = keep_prob
+    random_tensor += torch.rand([batch_size, 1, 1, 1], dtype=inputs.dtype, device=inputs.device)
+    binary_tensor = torch.floor(random_tensor)
+    # ---------------------------------------------------------------------------------------#
+    #   对inputs先进行inputs / keep_prob的放缩，这是为什么？
+    #   回答：对权值放缩是为了获得输出的一致性，即期望不变。
+    #       假设一个神经元的输出激活值为a，在不使用dropout的情况下，
+    #       其输出期望值为a，如果使用了dropout，神经元就可能有保留和关闭两种状态，
+    #       把它看作一个离散型随机变量，它就符合概率论中的0-1分布，
+    #       其输出激活值的期望变为 p*a+(1-p)*0=pa，此时若要保持期望和不使用dropout时一致，就要除以p。
+    # 参考https://blog.csdn.net/weixin_45377629/article/details/124430796的说明
+    # ---------------------------------------------------------------------------------------#
+    output = inputs / keep_prob * binary_tensor
+    return output
+
+
+def get_same_padding_conv2d(image_size=None):
+    """ Chooses static padding if you have specified an image size, and dynamic padding otherwise.
+        Static padding is necessary for ONNX exporting of models. """
+    if image_size is None:
+        return Conv2dDynamicSamePadding
     else:
-        new_w = int(height / old_h * old_w)
-        new_h = height
+        return partial(Conv2dStaticSamePadding, image_size=image_size)
 
-    canvas = np.zeros((height, height, c), np.float32)
-    if means is not None:
-        canvas[...] = means
 
-    if new_w != old_w or new_h != old_h:
-        if interpolation is None:
-            image = cv2.resize(image, (new_w, new_h))
-        else:
-            image = cv2.resize(image, (new_w, new_h), interpolation=interpolation)
+class Conv2dDynamicSamePadding(nn.Conv2d):
+    """ 2D Convolutions like TensorFlow, for a dynamic image size """
 
-    padding_h = height - new_h
-    padding_w = width - new_w
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True):
+        super().__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)  # 自定义的conv2d,通过padding把输入图像整合成一个大小
+        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
 
-    if c > 1:
-        canvas[:new_h, :new_w] = image
+    def forward(self, x):
+        ih, iw = x.size()[-2:]
+        kh, kw = self.weight.size()[-2:]
+        sh, sw = self.stride
+        oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
+        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
+        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
+        if pad_h > 0 or pad_w > 0:
+            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
+        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+
+
+class Identity(nn.Module):
+    def __init__(self, ):
+        super(Identity, self).__init__()
+
+    def forward(self, input):
+        return input
+
+
+########################################################################
+############## HELPERS FUNCTIONS FOR LOADING MODEL PARAMS ##############
+########################################################################
+
+
+def efficientnet_params(model_name):
+    """ Map EfficientNet model name to parameter coefficients. """
+    params_dict = {
+        # Coefficients:   width,depth,res,dropout
+        'efficientnet-b0': (1.0, 1.0, 224, 0.2),
+        'efficientnet-b1': (1.0, 1.1, 240, 0.2),
+        'efficientnet-b2': (1.1, 1.2, 260, 0.3),
+        'efficientnet-b3': (1.2, 1.4, 300, 0.3),
+        'efficientnet-b4': (1.4, 1.8, 380, 0.4),
+        'efficientnet-b5': (1.6, 2.2, 456, 0.4),
+        'efficientnet-b6': (1.8, 2.6, 528, 0.5),
+        'efficientnet-b7': (2.0, 3.1, 600, 0.5),
+        'efficientnet-b8': (2.2, 3.6, 672, 0.5),
+        'efficientnet-l2': (4.3, 5.3, 800, 0.5),
+    }
+    return params_dict[model_name]
+
+
+class BlockDecoder(object):
+    """ Block Decoder for readability, straight from the official TensorFlow repository """
+
+    @staticmethod
+    def _decode_block_string(block_string):
+        """ Gets a block through a string notation of arguments. """
+        assert isinstance(block_string, str)
+
+        ops = block_string.split('_')  # 按_把每个结点分出来
+        options = {}
+        for op in ops:  # 然后按字母切两段得到每个结点的信息
+            splits = re.split(r'(\d.*)', op)
+            if len(splits) >= 2:
+                key, value = splits[:2]
+                options[key] = value
+
+        # Check stride 校验下步长的设置
+        assert (('s' in options and len(options['s']) == 1) or
+                (len(options['s']) == 2 and options['s'][0] == options['s'][1]))
+
+        return BlockArgs(  # 最后返回block的对应参数
+            kernel_size=int(options['k']),
+            num_repeat=int(options['r']),
+            input_filters=int(options['i']),
+            output_filters=int(options['o']),
+            expand_ratio=int(options['e']),
+            id_skip=('noskip' not in block_string),
+            se_ratio=float(options['se']) if 'se' in options else None,
+            stride=[int(options['s'][0])])
+
+    @staticmethod
+    def _encode_block_string(block):
+        """Encodes a block to a string."""
+        args = [
+            'r%d' % block.num_repeat,
+            'k%d' % block.kernel_size,
+            's%d%d' % (block.strides[0], block.strides[1]),
+            'e%s' % block.expand_ratio,
+            'i%d' % block.input_filters,
+            'o%d' % block.output_filters
+        ]
+        if 0 < block.se_ratio <= 1:
+            args.append('se%s' % block.se_ratio)
+        if block.id_skip is False:
+            args.append('noskip')
+        return '_'.join(args)
+
+    @staticmethod
+    def decode(string_list):
+        """
+        Decodes a list of string notations to specify blocks inside the network.
+
+        :param string_list: a list of strings, each string is a notation of block
+        :return: a list of BlockArgs namedtuples of block args
+        """
+        assert isinstance(string_list, list)
+        blocks_args = []
+        for block_string in string_list:  # 把每个block的标记字符串解析成一个个block的参数
+            blocks_args.append(BlockDecoder._decode_block_string(block_string))
+        return blocks_args  #一共7种block
+
+    @staticmethod
+    def encode(blocks_args):
+        """
+        Encodes a list of BlockArgs to a list of strings.
+
+        :param blocks_args: a list of BlockArgs namedtuples of block args
+        :return: a list of strings, each string is a notation of block
+        """
+        block_strings = []
+        for block in blocks_args:
+            block_strings.append(BlockDecoder._encode_block_string(block))
+        return block_strings
+
+
+def efficientnet(width_coefficient=None, depth_coefficient=None, dropout_rate=0.2,
+                 drop_connect_rate=0.2, image_size=None, num_classes=1000):
+    """ Creates a efficientnet model. """
+
+    blocks_args = [
+        'r1_k3_s11_e1_i32_o16_se0.25', 'r2_k3_s22_e6_i16_o24_se0.25',
+        'r2_k5_s22_e6_i24_o40_se0.25', 'r3_k3_s22_e6_i40_o80_se0.25',
+        'r3_k5_s11_e6_i80_o112_se0.25', 'r4_k5_s22_e6_i112_o192_se0.25',
+        'r1_k3_s11_e6_i192_o320_se0.25',
+    ]
+    blocks_args = BlockDecoder.decode(blocks_args)
+
+    global_params = GlobalParams(
+        batch_norm_momentum=0.99,  # pytorch的bn的默认值和tf不一样,这里作者设置成一样的
+        batch_norm_epsilon=1e-3,
+        dropout_rate=dropout_rate,
+        drop_connect_rate=drop_connect_rate,
+        # data_format='channels_last',  # removed, this is always true in PyTorch
+        num_classes=num_classes,
+        width_coefficient=width_coefficient,
+        depth_coefficient=depth_coefficient,
+        depth_divisor=8,
+        min_depth=None,
+        image_size=image_size,
+    )
+
+    return blocks_args, global_params  # 返回每个block的参数和一些公共的参数
+
+
+def get_model_params(model_name, override_params):
+    """ Get the block args and global params for a given model """
+    if model_name.startswith('efficientnet'):  # 获取对应efficientnet的模型参数系数
+        w, d, s, p = efficientnet_params(model_name)  # 特征图宽度(channel层数),网络深度(block的层数),图片大小,dropout
+        # note: all models have drop connect rate = 0.2
+        blocks_args, global_params = efficientnet(
+            width_coefficient=w, depth_coefficient=d, dropout_rate=p, image_size=s)  # 根据对应系数构建efficientnet的整个网络参数
     else:
-        if len(image.shape) == 2:
-            canvas[:new_h, :new_w, 0] = image
-        else:
-            canvas[:new_h, :new_w] = image
-
-    return canvas, new_w, new_h, old_w, old_h, padding_w, padding_h,
-
-
-def preprocess(*image_path, max_size=512, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
-    ori_imgs = [cv2.imread(img_path) for img_path in image_path]
-    normalized_imgs = [(img[..., ::-1] / 255 - mean) / std for img in ori_imgs]
-    imgs_meta = [aspectaware_resize_padding(img, max_size, max_size,
-                                            means=None) for img in normalized_imgs]
-    framed_imgs = [img_meta[0] for img_meta in imgs_meta]
-    framed_metas = [img_meta[1:] for img_meta in imgs_meta]
-
-    return ori_imgs, framed_imgs, framed_metas
+        raise NotImplementedError('model name is not pre-defined: %s' % model_name)
+    if override_params:  # 自定义的覆盖
+        # ValueError will be raised here if override_params has fields not included in global_params.
+        global_params = global_params._replace(**override_params)
+    return blocks_args, global_params
 
 
-def preprocess_video(*frame_from_video, max_size=512, mean=(0.406, 0.456, 0.485), std=(0.225, 0.224, 0.229)):
-    ori_imgs = frame_from_video
-    normalized_imgs = [(img[..., ::-1] / 255 - mean) / std for img in ori_imgs]
-    imgs_meta = [aspectaware_resize_padding(img, max_size, max_size,
-                                            means=None) for img in normalized_imgs]
-    framed_imgs = [img_meta[0] for img_meta in imgs_meta]
-    framed_metas = [img_meta[1:] for img_meta in imgs_meta]
+url_map = {
+    'efficientnet-b0': 'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b0-355c32eb.pth',
+    'efficientnet-b1': 'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b1-f1951068.pth',
+    'efficientnet-b2': 'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b2-8bb594d6.pth',
+    'efficientnet-b3': 'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b3-5fb5a3c3.pth',
+    'efficientnet-b4': 'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b4-6ed6700e.pth',
+    'efficientnet-b5': 'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b5-b6417697.pth',
+    'efficientnet-b6': 'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b6-c76e70fd.pth',
+    'efficientnet-b7': 'https://publicmodels.blob.core.windows.net/container/aa/efficientnet-b7-dcc49843.pth',
+}
 
-    return ori_imgs, framed_imgs, framed_metas
-
-
-def postprocess(x, anchors, regression, classification, regressBoxes, clipBoxes, threshold, iou_threshold):
-    transformed_anchors = regressBoxes(anchors, regression)
-    transformed_anchors = clipBoxes(transformed_anchors, x)
-    scores = torch.max(classification, dim=2, keepdim=True)[0]
-    scores_over_thresh = (scores > threshold)[:, :, 0]
-    out = []
-    for i in range(x.shape[0]):
-        if scores_over_thresh[i].sum() == 0:
-            out.append({
-                'rois': np.array(()),
-                'class_ids': np.array(()),
-                'scores': np.array(()),
-            })
-            continue
-
-        classification_per = classification[i, scores_over_thresh[i, :], ...].permute(1, 0)
-        transformed_anchors_per = transformed_anchors[i, scores_over_thresh[i, :], ...]
-        scores_per = scores[i, scores_over_thresh[i, :], ...]
-        scores_, classes_ = classification_per.max(dim=0)
-        anchors_nms_idx = batched_nms(transformed_anchors_per, scores_per[:, 0], classes_, iou_threshold=iou_threshold)
-
-        if anchors_nms_idx.shape[0] != 0:
-            classes_ = classes_[anchors_nms_idx]
-            scores_ = scores_[anchors_nms_idx]
-            boxes_ = transformed_anchors_per[anchors_nms_idx, :]
-
-            out.append({
-                'rois': boxes_.cpu().numpy(),
-                'class_ids': classes_.cpu().numpy(),
-                'scores': scores_.cpu().numpy(),
-            })
-        else:
-            out.append({
-                'rois': np.array(()),
-                'class_ids': np.array(()),
-                'scores': np.array(()),
-            })
-
-    return out
+url_map_advprop = {
+    'efficientnet-b0': 'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b0-b64d5a18.pth',
+    'efficientnet-b1': 'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b1-0f3ce85a.pth',
+    'efficientnet-b2': 'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b2-6e9d97e5.pth',
+    'efficientnet-b3': 'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b3-cdd7c0f4.pth',
+    'efficientnet-b4': 'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b4-44fb3a87.pth',
+    'efficientnet-b5': 'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b5-86493f6b.pth',
+    'efficientnet-b6': 'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b6-ac80338e.pth',
+    'efficientnet-b7': 'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b7-4652b6dd.pth',
+    'efficientnet-b8': 'https://publicmodels.blob.core.windows.net/container/advprop/efficientnet-b8-22a8fe65.pth',
+}
 
 
-def display(preds, imgs, obj_list, imshow=True, imwrite=False):
-    for i in range(len(imgs)):
-        if len(preds[i]['rois']) == 0:
-            continue
-
-        imgs[i] = imgs[i].copy()
-
-        for j in range(len(preds[i]['rois'])):
-            (x1, y1, x2, y2) = preds[i]['rois'][j].astype(np.int)
-            obj = obj_list[preds[i]['class_ids'][j]]
-            score = float(preds[i]['scores'][j])
-
-            plot_one_box(imgs[i], [x1, y1, x2, y2], label=obj, score=score,
-                         color=color_list[get_index_label(obj, obj_list)])
-        if imshow:
-            cv2.imshow('img', imgs[i])
-            cv2.waitKey(0)
-
-        if imwrite:
-            os.makedirs('test/', exist_ok=True)
-            cv2.imwrite(f'test/{uuid.uuid4().hex}.jpg', imgs[i])
-
-
-def replace_w_sync_bn(m):
-    for var_name in dir(m):
-        target_attr = getattr(m, var_name)
-        if type(target_attr) == torch.nn.BatchNorm2d:
-            num_features = target_attr.num_features
-            eps = target_attr.eps
-            momentum = target_attr.momentum
-            affine = target_attr.affine
-
-            # get parameters
-            running_mean = target_attr.running_mean
-            running_var = target_attr.running_var
-            if affine:
-                weight = target_attr.weight
-                bias = target_attr.bias
-
-            setattr(m, var_name,
-                    SynchronizedBatchNorm2d(num_features, eps, momentum, affine))
-
-            target_attr = getattr(m, var_name)
-            # set parameters
-            target_attr.running_mean = running_mean
-            target_attr.running_var = running_var
-            if affine:
-                target_attr.weight = weight
-                target_attr.bias = bias
-
-    for var_name, children in m.named_children():
-        replace_w_sync_bn(children)
-
-
-class CustomDataParallel(nn.DataParallel):
-    """
-    force splitting data to all gpus instead of sending all data to cuda:0 and then moving around.
-    """
-
-    def __init__(self, module, num_gpus):
-        super().__init__(module)
-        self.num_gpus = num_gpus
-
-    def scatter(self, inputs, kwargs, device_ids):
-        # More like scatter and data prep at the same time. The point is we prep the data in such a way
-        # that no scatter is necessary, and there's no need to shuffle stuff around different GPUs.
-        devices = ['cuda:' + str(x) for x in range(self.num_gpus)]
-        splits = inputs[0].shape[0] // self.num_gpus
-
-        if splits == 0:
-            raise Exception('Batchsize must be greater than num_gpus.')
-
-        return [(inputs[0][splits * device_idx: splits * (device_idx + 1)].to(f'cuda:{device_idx}', non_blocking=True),
-                 inputs[1][splits * device_idx: splits * (device_idx + 1)].to(f'cuda:{device_idx}', non_blocking=True))
-                for device_idx in range(len(devices))], \
-               [kwargs] * len(devices)
-
-
-def get_last_weights(weights_path):
-    weights_path = glob(weights_path + f'/*.pth')
-    weights_path = sorted(weights_path,
-                          key=lambda x: int(x.rsplit('_')[-1].rsplit('.')[0]),
-                          reverse=True)[0]
-    print(f'using weights {weights_path}')
-    return weights_path
-
-
-def init_weights(model):
-    for name, module in model.named_modules():
-        is_conv_layer = isinstance(module, nn.Conv2d)
-
-        if is_conv_layer:
-            if "conv_list" or "header" in name:
-                variance_scaling_(module.weight.data)
-            else:
-                nn.init.kaiming_uniform_(module.weight.data)
-
-            if module.bias is not None:
-                if "classifier.header" in name:
-                    bias_value = -np.log((1 - 0.01) / 0.01)
-                    torch.nn.init.constant_(module.bias, bias_value)
-                else:
-                    module.bias.data.zero_()
-
-
-def variance_scaling_(tensor, gain=1.):
-    # type: (Tensor, float) -> Tensor
-    r"""
-    initializer for SeparableConv in Regressor/Classifier
-    reference: https://keras.io/zh/initializers/  VarianceScaling
-    """
-    fan_in, fan_out = _calculate_fan_in_and_fan_out(tensor)
-    std = math.sqrt(gain / float(fan_in))
-
-    return _no_grad_normal_(tensor, 0., std)
-
-
-STANDARD_COLORS = [
-    'LawnGreen', 'Chartreuse', 'Aqua', 'Beige', 'Azure', 'BlanchedAlmond', 'Bisque',
-    'Aquamarine', 'BlueViolet', 'BurlyWood', 'CadetBlue', 'AntiqueWhite',
-    'Chocolate', 'Coral', 'CornflowerBlue', 'Cornsilk', 'Crimson', 'Cyan',
-    'DarkCyan', 'DarkGoldenRod', 'DarkGrey', 'DarkKhaki', 'DarkOrange',
-    'DarkOrchid', 'DarkSalmon', 'DarkSeaGreen', 'DarkTurquoise', 'DarkViolet',
-    'DeepPink', 'DeepSkyBlue', 'DodgerBlue', 'FireBrick', 'FloralWhite',
-    'ForestGreen', 'Fuchsia', 'Gainsboro', 'GhostWhite', 'Gold', 'GoldenRod',
-    'Salmon', 'Tan', 'HoneyDew', 'HotPink', 'IndianRed', 'Ivory', 'Khaki',
-    'Lavender', 'LavenderBlush', 'AliceBlue', 'LemonChiffon', 'LightBlue',
-    'LightCoral', 'LightCyan', 'LightGoldenRodYellow', 'LightGray', 'LightGrey',
-    'LightGreen', 'LightPink', 'LightSalmon', 'LightSeaGreen', 'LightSkyBlue',
-    'LightSlateGray', 'LightSlateGrey', 'LightSteelBlue', 'LightYellow', 'Lime',
-    'LimeGreen', 'Linen', 'Magenta', 'MediumAquaMarine', 'MediumOrchid',
-    'MediumPurple', 'MediumSeaGreen', 'MediumSlateBlue', 'MediumSpringGreen',
-    'MediumTurquoise', 'MediumVioletRed', 'MintCream', 'MistyRose', 'Moccasin',
-    'NavajoWhite', 'OldLace', 'Olive', 'OliveDrab', 'Orange', 'OrangeRed',
-    'Orchid', 'PaleGoldenRod', 'PaleGreen', 'PaleTurquoise', 'PaleVioletRed',
-    'PapayaWhip', 'PeachPuff', 'Peru', 'Pink', 'Plum', 'PowderBlue', 'Purple',
-    'Red', 'RosyBrown', 'RoyalBlue', 'SaddleBrown', 'Green', 'SandyBrown',
-    'SeaGreen', 'SeaShell', 'Sienna', 'Silver', 'SkyBlue', 'SlateBlue',
-    'SlateGray', 'SlateGrey', 'Snow', 'SpringGreen', 'SteelBlue', 'GreenYellow',
-    'Teal', 'Thistle', 'Tomato', 'Turquoise', 'Violet', 'Wheat', 'White',
-    'WhiteSmoke', 'Yellow', 'YellowGreen'
-]
-
-
-def from_colorname_to_bgr(color):
-    rgb_color = webcolors.name_to_rgb(color)
-    result = (rgb_color.blue, rgb_color.green, rgb_color.red)
-    return result
-
-
-def standard_to_bgr(list_color_name):
-    standard = []
-    for i in range(len(list_color_name) - 36):  # -36 used to match the len(obj_list)
-        standard.append(from_colorname_to_bgr(list_color_name[i]))
-    return standard
-
-
-def get_index_label(label, obj_list):
-    index = int(obj_list.index(label))
-    return index
-
-
-def plot_one_box(img, coord, label=None, score=None, color=None, line_thickness=None):
-    tl = line_thickness or int(round(0.001 * max(img.shape[0:2])))  # line thickness
-    color = color
-    c1, c2 = (int(coord[0]), int(coord[1])), (int(coord[2]), int(coord[3]))
-    cv2.rectangle(img, c1, c2, color, thickness=tl)
-    if label:
-        tf = max(tl - 2, 1)  # font thickness
-        s_size = cv2.getTextSize(str('{:.0%}'.format(score)), 0, fontScale=float(tl) / 3, thickness=tf)[0]
-        t_size = cv2.getTextSize(label, 0, fontScale=float(tl) / 3, thickness=tf)[0]
-        c2 = c1[0] + t_size[0] + s_size[0] + 15, c1[1] - t_size[1] - 3
-        cv2.rectangle(img, c1, c2, color, -1)  # filled
-        cv2.putText(img, '{}: {:.0%}'.format(label, score), (c1[0], c1[1] - 2), 0, float(tl) / 3, [0, 0, 0],
-                    thickness=tf, lineType=cv2.FONT_HERSHEY_SIMPLEX)
-
-
-color_list = standard_to_bgr(STANDARD_COLORS)
-
-
-def boolean_string(s):
-    if s not in {'False', 'True'}:
-        raise ValueError('Not a valid boolean string')
-    return s == 'True'
+def load_pretrained_weights(model, model_name, load_fc=True, advprop=False):
+    """ Loads pretrained weights, and downloads if loading for the first time. """
+    # AutoAugment or Advprop (different preprocessing)
+    url_map_ = url_map_advprop if advprop else url_map
+    state_dict = model_zoo.load_url(url_map_[model_name], map_location=torch.device('cpu'))
+    # state_dict = torch.load('../../weights/backbone_efficientnetb0.pth')
+    if load_fc:
+        ret = model.load_state_dict(state_dict, strict=False)
+        print(ret)
+    else:
+        state_dict.pop('_fc.weight')
+        state_dict.pop('_fc.bias')
+        res = model.load_state_dict(state_dict, strict=False)
+        assert set(res.missing_keys) == set(['_fc.weight', '_fc.bias']), 'issue loading pretrained weights'
+    print('Loaded pretrained weights for {}'.format(model_name))
