@@ -423,9 +423,9 @@ class EfficientNet(nn.Module):
     """
 
     def __init__(self, compound_coef, load_weights=False):
-        super(EfficientNet, self).__init__()
+        super(EfficientNet, self).__init__()  # 构建EfficientNet特征提取网络
         model = EffNet.from_pretrained(f'efficientnet-b{compound_coef}', load_weights)
-        del model._conv_head
+        del model._conv_head  # 这里是做efficientdet的网络,只是把efficientnet当做backbone使用,就把head那层都干掉
         del model._bn1
         del model._avg_pooling
         del model._dropout
