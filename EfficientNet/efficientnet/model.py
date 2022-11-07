@@ -27,42 +27,42 @@ class MBConvBlock(nn.Module):
     """
 
     def __init__(self, block_args, global_params):
-        super().__init__()
-        self._block_args = block_args
+        super().__init__()  # 基于mobilenet的深度可分离卷积.包含了带注意力机制的se模块
+        self._block_args = block_args  # block的参数,bn的参数
         self._bn_mom = 1 - global_params.batch_norm_momentum
         self._bn_eps = global_params.batch_norm_epsilon
-        self.has_se = (self._block_args.se_ratio is not None) and (0 < self._block_args.se_ratio <= 1)
-        self.id_skip = block_args.id_skip  # skip connection and drop connect
+        self.has_se = (self._block_args.se_ratio is not None) and (0 < self._block_args.se_ratio <= 1)  # se_ratio值是小数才会做注意力机制
+        self.id_skip = block_args.id_skip  # skip connection and drop connect 相对于dropout的丢弃点来说,这个是丢弃某个连接,也是为了降低过拟合,提高泛化能力
 
         # Get static or dynamic convolution depending on image size
         Conv2d = get_same_padding_conv2d(image_size=global_params.image_size)
 
-        # Expansion phase
+        # Expansion phase 这里的卷积表示需不需要对特征图个数做扩张
         inp = self._block_args.input_filters  # number of input channels
         oup = self._block_args.input_filters * self._block_args.expand_ratio  # number of output channels
         if self._block_args.expand_ratio != 1:
             self._expand_conv = Conv2d(in_channels=inp, out_channels=oup, kernel_size=1, bias=False)
             self._bn0 = nn.BatchNorm2d(num_features=oup, momentum=self._bn_mom, eps=self._bn_eps)
 
-        # Depthwise convolution phase
+        # Depthwise convolution phase 这里做的就是深度可分离卷积
         k = self._block_args.kernel_size
         s = self._block_args.stride
         self._depthwise_conv = Conv2d(
-            in_channels=oup, out_channels=oup, groups=oup,  # groups makes it depthwise
+            in_channels=oup, out_channels=oup, groups=oup,  # groups makes it depthwise 通过group来做到深度可分离
             kernel_size=k, stride=s, bias=False)
         self._bn1 = nn.BatchNorm2d(num_features=oup, momentum=self._bn_mom, eps=self._bn_eps)
 
         # Squeeze and Excitation layer, if desired
-        if self.has_se:
+        if self.has_se:  # 注意力机制的模块,先把特征图做压缩,然后还原
             num_squeezed_channels = max(1, int(self._block_args.input_filters * self._block_args.se_ratio))
             self._se_reduce = Conv2d(in_channels=oup, out_channels=num_squeezed_channels, kernel_size=1)
             self._se_expand = Conv2d(in_channels=num_squeezed_channels, out_channels=oup, kernel_size=1)
 
-        # Output phase
+        # Output phase 最后用再卷一次得到最终需要的特征图的个数
         final_oup = self._block_args.output_filters
         self._project_conv = Conv2d(in_channels=oup, out_channels=final_oup, kernel_size=1, bias=False)
         self._bn2 = nn.BatchNorm2d(num_features=final_oup, momentum=self._bn_mom, eps=self._bn_eps)
-        self._swish = MemoryEfficientSwish()
+        self._swish = MemoryEfficientSwish()  # 一个作者自己实现的SiLU激活函数,貌似现在pytorch里已经有了
 
     def forward(self, inputs, drop_connect_rate=None):
         """
@@ -83,7 +83,7 @@ class MBConvBlock(nn.Module):
         x = self._swish(x)
 
         # Squeeze and Excitation
-        if self.has_se:
+        if self.has_se:  # 先做一个全局的平均池化,然后把结果卷一下提特征,最后通过sigmoid算出比例,再乘上输入
             x_squeezed = F.adaptive_avg_pool2d(x, 1)
             x_squeezed = self._se_reduce(x_squeezed)
             x_squeezed = self._swish(x_squeezed)
@@ -98,7 +98,7 @@ class MBConvBlock(nn.Module):
         if self.id_skip and self._block_args.stride == 1 and input_filters == output_filters:
             if drop_connect_rate:
                 x = drop_connect(x, p=drop_connect_rate, training=self.training)
-            x = x + inputs  # skip connection
+            x = x + inputs  # skip connection 如果输入特征图和输出特征图个数一样的话就做个残差连接
         return x
 
     def set_swish(self, memory_efficient=True):
@@ -120,44 +120,44 @@ class EfficientNet(nn.Module):
     """
 
     def __init__(self, blocks_args=None, global_params=None):
-        super().__init__()
+        super().__init__()  # 实例化EfficientNet
         assert isinstance(blocks_args, list), 'blocks_args should be a list'
         assert len(blocks_args) > 0, 'block args must be greater than 0'
         self._global_params = global_params
         self._blocks_args = blocks_args
 
-        # Get static or dynamic convolution depending on image size
-        Conv2d = get_same_padding_conv2d(image_size=global_params.image_size)
+        # Get static or dynamic convolution depending on image size 入口的卷积层
+        Conv2d = get_same_padding_conv2d(image_size=global_params.image_size)  # 把conv2d的输入大小固定成image_size
 
-        # Batch norm parameters
+        # Batch norm parameters,这两个参数在计算样本的均值和方差的时候会用到,具体看文档
         bn_mom = 1 - self._global_params.batch_norm_momentum
         bn_eps = self._global_params.batch_norm_epsilon
 
-        # Stem
+        # Stem 入口卷积层的输入输出特征图个数
         in_channels = 3  # rgb
         out_channels = round_filters(32, self._global_params)  # number of output channels
-        self._conv_stem = Conv2d(in_channels, out_channels, kernel_size=3, stride=2, bias=False)
+        self._conv_stem = Conv2d(in_channels, out_channels, kernel_size=3, stride=2, bias=False)  # 入口的卷积,输入3,输出32个特征图,步长是2的话就特征图的大小减半
         self._bn0 = nn.BatchNorm2d(num_features=out_channels, momentum=bn_mom, eps=bn_eps)
 
-        # Build blocks
+        # Build blocks 构建入口的卷积层之后的各个block层
         self._blocks = nn.ModuleList([])
         for block_args in self._blocks_args:
 
             # Update block input and output filters based on depth multiplier.
-            block_args = block_args._replace(
+            block_args = block_args._replace(  # 更行输入输出特征图的个数和block的堆叠次数
                 input_filters=round_filters(block_args.input_filters, self._global_params),
                 output_filters=round_filters(block_args.output_filters, self._global_params),
                 num_repeat=round_repeats(block_args.num_repeat, self._global_params)
             )
 
             # The first block needs to take care of stride and filter size increase.
-            self._blocks.append(MBConvBlock(block_args, self._global_params))
+            self._blocks.append(MBConvBlock(block_args, self._global_params))  # 如果有堆叠的话,每个大block里的第一个MBConvBlock需要单独做,处理输入和步长的问题
             if block_args.num_repeat > 1:
-                block_args = block_args._replace(input_filters=block_args.output_filters, stride=1)
+                block_args = block_args._replace(input_filters=block_args.output_filters, stride=1)  # 堆叠的话,就让后面的卷积层特征图输入输出一致了
             for _ in range(block_args.num_repeat - 1):
                 self._blocks.append(MBConvBlock(block_args, self._global_params))
 
-        # Head
+        # Head 最后的特征输出层就是一个1×1的卷积,然后平均池化,然后一个fc,最后激活一下,这个head是cls的head,不同的任务可能不一样
         in_channels = block_args.output_filters  # output of final block
         out_channels = round_filters(1280, self._global_params)
         self._conv_head = Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
@@ -208,13 +208,13 @@ class EfficientNet(nn.Module):
 
     @classmethod
     def from_name(cls, model_name, override_params=None):
-        cls._check_model_name_is_valid(model_name)
+        cls._check_model_name_is_valid(model_name)  # 检查下模型的名字,b0到b9
         blocks_args, global_params = get_model_params(model_name, override_params)
         return cls(blocks_args, global_params)
 
     @classmethod
     def from_pretrained(cls, model_name, load_weights=True, advprop=False, num_classes=1000, in_channels=3):
-        model = cls.from_name(model_name, override_params={'num_classes': num_classes})
+        model = cls.from_name(model_name, override_params={'num_classes': num_classes})  # 构建模型
         if load_weights:
             load_pretrained_weights(model, model_name, load_fc=(num_classes == 1000), advprop=advprop)
         if in_channels != 3:
