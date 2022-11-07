@@ -223,7 +223,7 @@ def train(opt):
                         annot = annot.cuda()
 
                     optimizer.zero_grad()
-                    cls_loss, reg_loss = model(imgs, annot, obj_list=params.obj_list)
+                    cls_loss, reg_loss = model(imgs, annot, obj_list=params.obj_list)  # 前向传播并计算损失
                     cls_loss = cls_loss.mean()
                     reg_loss = reg_loss.mean()
 
