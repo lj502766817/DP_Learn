@@ -14,20 +14,20 @@ class CocoDataset(Dataset):
         self.set_name = set
         self.transform = transform
 
-        self.coco = COCO(os.path.join(self.root_dir, 'annotations', 'instances_' + self.set_name + '.json'))
-        self.image_ids = self.coco.getImgIds()
+        self.coco = COCO(os.path.join(self.root_dir, 'annotations', 'instances_' + self.set_name + '.json'))  # 使用coco的工具把数据做成coco数据集的格式
+        self.image_ids = self.coco.getImgIds()  # 图片的编号
 
         self.load_classes()
 
     def load_classes(self):
-
+        # 这个方法把类别拿到
         # load class names (name -> label)
         categories = self.coco.loadCats(self.coco.getCatIds())
         categories.sort(key=lambda x: x['id'])
 
         self.classes = {}
         for c in categories:
-            self.classes[c['name']] = len(self.classes)
+            self.classes[c['name']] = len(self.classes)  # 做个翻转,把id对应到名字上
 
         # also load the reverse (label -> name)
         self.labels = {}
@@ -39,25 +39,25 @@ class CocoDataset(Dataset):
 
     def __getitem__(self, idx):
 
-        img = self.load_image(idx)
-        annot = self.load_annotations(idx)
+        img = self.load_image(idx)  # 加载图片
+        annot = self.load_annotations(idx)  # 加载标签
         sample = {'img': img, 'annot': annot}
-        if self.transform:
+        if self.transform:  # 要不要做数据增强
             sample = self.transform(sample)
         return sample
 
     def load_image(self, image_index):
-        image_info = self.coco.loadImgs(self.image_ids[image_index])[0]
+        image_info = self.coco.loadImgs(self.image_ids[image_index])[0]  # 拿图片信息
         path = os.path.join(self.root_dir, self.set_name, image_info['file_name'])
         img = cv2.imread(path)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # 把图片从bgr转成rgb
 
-        return img.astype(np.float32) / 255.
+        return img.astype(np.float32) / 255.  # 输出的时候做下归一化
 
     def load_annotations(self, image_index):
         # get ground truth annotations
         annotations_ids = self.coco.getAnnIds(imgIds=self.image_ids[image_index], iscrowd=False)
-        annotations = np.zeros((0, 5))
+        annotations = np.zeros((0, 5))  # 初始化标注信息,默认值0
 
         # some images appear to miss annotations
         if len(annotations_ids) == 0:
@@ -68,7 +68,7 @@ class CocoDataset(Dataset):
         for idx, a in enumerate(coco_annotations):
 
             # some annotations have basically no width / height, skip them
-            if a['bbox'][2] < 1 or a['bbox'][3] < 1:
+            if a['bbox'][2] < 1 or a['bbox'][3] < 1:  # 校验一下标注的正确性
                 continue
 
             annotation = np.zeros((1, 5))
@@ -76,7 +76,7 @@ class CocoDataset(Dataset):
             annotation[0, 4] = a['category_id'] - 1
             annotations = np.append(annotations, annotation, axis=0)
 
-        # transform from [x, y, w, h] to [x1, y1, x2, y2]
+        # transform from [x, y, w, h] to [x1, y1, x2, y2]  把bbox从xywh的模式转成xyxy的模式
         annotations[:, 2] = annotations[:, 0] + annotations[:, 2]
         annotations[:, 3] = annotations[:, 1] + annotations[:, 3]
 
@@ -139,7 +139,7 @@ class Augmenter(object):
     """Convert ndarrays in sample to Tensors."""
 
     def __call__(self, sample, flip_x=0.5):
-        if np.random.rand() < flip_x:
+        if np.random.rand() < flip_x:  # 按概率翻转图片和标签
             image, annots = sample['img'], sample['annot']
             image = image[:, ::-1, :]
 
