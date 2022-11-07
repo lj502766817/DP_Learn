@@ -59,16 +59,16 @@ class Swish(nn.Module):
         return x * torch.sigmoid(x)
 
 
-def round_filters(filters, global_params):
+def round_filters(filters, global_params):  # 根据全局的系数计算四舍五入之后的卷积核的个数
     """ Calculate and round number of filters based on depth multiplier. """
-    multiplier = global_params.width_coefficient
+    multiplier = global_params.width_coefficient  # 全的特征图个数系数
     if not multiplier:
         return filters
-    divisor = global_params.depth_divisor
+    divisor = global_params.depth_divisor  # 除数因子,保证特征图是8的倍数
     min_depth = global_params.min_depth
     filters *= multiplier
-    min_depth = min_depth or divisor
-    new_filters = max(min_depth, int(filters + divisor / 2) // divisor * divisor)
+    min_depth = min_depth or divisor  # 如果没设置最小深度就用除数因子代替
+    new_filters = max(min_depth, int(filters + divisor / 2) // divisor * divisor)  # 新的特征图个数,最少8个
     if new_filters < 0.9 * filters:  # prevent rounding by more than 10%
         new_filters += divisor
     return int(new_filters)
@@ -84,12 +84,21 @@ def round_repeats(repeats, global_params):
 
 def drop_connect(inputs, p, training):
     """ Drop connect. """
-    if not training: return inputs
+    if not training: return inputs  # 非训练模式下不做这个
     batch_size = inputs.shape[0]
-    keep_prob = 1 - p
+    keep_prob = 1 - p  # 需要保留的比例
     random_tensor = keep_prob
     random_tensor += torch.rand([batch_size, 1, 1, 1], dtype=inputs.dtype, device=inputs.device)
     binary_tensor = torch.floor(random_tensor)
+    # ---------------------------------------------------------------------------------------#
+    #   对inputs先进行inputs / keep_prob的放缩，这是为什么？
+    #   回答：对权值放缩是为了获得输出的一致性，即期望不变。
+    #       假设一个神经元的输出激活值为a，在不使用dropout的情况下，
+    #       其输出期望值为a，如果使用了dropout，神经元就可能有保留和关闭两种状态，
+    #       把它看作一个离散型随机变量，它就符合概率论中的0-1分布，
+    #       其输出激活值的期望变为 p*a+(1-p)*0=pa，此时若要保持期望和不使用dropout时一致，就要除以p。
+    # 参考https://blog.csdn.net/weixin_45377629/article/details/124430796的说明
+    # ---------------------------------------------------------------------------------------#
     output = inputs / keep_prob * binary_tensor
     return output
 
@@ -107,7 +116,7 @@ class Conv2dDynamicSamePadding(nn.Conv2d):
     """ 2D Convolutions like TensorFlow, for a dynamic image size """
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True):
-        super().__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)
+        super().__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)  # 自定义的conv2d,通过padding把输入图像整合成一个大小
         self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
 
     def forward(self, x):
@@ -161,19 +170,19 @@ class BlockDecoder(object):
         """ Gets a block through a string notation of arguments. """
         assert isinstance(block_string, str)
 
-        ops = block_string.split('_')
+        ops = block_string.split('_')  # 按_把每个结点分出来
         options = {}
-        for op in ops:
+        for op in ops:  # 然后按字母切两段得到每个结点的信息
             splits = re.split(r'(\d.*)', op)
             if len(splits) >= 2:
                 key, value = splits[:2]
                 options[key] = value
 
-        # Check stride
+        # Check stride 校验下步长的设置
         assert (('s' in options and len(options['s']) == 1) or
                 (len(options['s']) == 2 and options['s'][0] == options['s'][1]))
 
-        return BlockArgs(
+        return BlockArgs(  # 最后返回block的对应参数
             kernel_size=int(options['k']),
             num_repeat=int(options['r']),
             input_filters=int(options['i']),
@@ -210,9 +219,9 @@ class BlockDecoder(object):
         """
         assert isinstance(string_list, list)
         blocks_args = []
-        for block_string in string_list:
+        for block_string in string_list:  # 把每个block的标记字符串解析成一个个block的参数
             blocks_args.append(BlockDecoder._decode_block_string(block_string))
-        return blocks_args
+        return blocks_args  #一共7种block
 
     @staticmethod
     def encode(blocks_args):
@@ -241,7 +250,7 @@ def efficientnet(width_coefficient=None, depth_coefficient=None, dropout_rate=0.
     blocks_args = BlockDecoder.decode(blocks_args)
 
     global_params = GlobalParams(
-        batch_norm_momentum=0.99,
+        batch_norm_momentum=0.99,  # pytorch的bn的默认值和tf不一样,这里作者设置成一样的
         batch_norm_epsilon=1e-3,
         dropout_rate=dropout_rate,
         drop_connect_rate=drop_connect_rate,
@@ -254,19 +263,19 @@ def efficientnet(width_coefficient=None, depth_coefficient=None, dropout_rate=0.
         image_size=image_size,
     )
 
-    return blocks_args, global_params
+    return blocks_args, global_params  # 返回每个block的参数和一些公共的参数
 
 
 def get_model_params(model_name, override_params):
     """ Get the block args and global params for a given model """
-    if model_name.startswith('efficientnet'):
-        w, d, s, p = efficientnet_params(model_name)
+    if model_name.startswith('efficientnet'):  # 获取对应efficientnet的模型参数系数
+        w, d, s, p = efficientnet_params(model_name)  # 特征图宽度(channel层数),网络深度(block的层数),图片大小,dropout
         # note: all models have drop connect rate = 0.2
         blocks_args, global_params = efficientnet(
-            width_coefficient=w, depth_coefficient=d, dropout_rate=p, image_size=s)
+            width_coefficient=w, depth_coefficient=d, dropout_rate=p, image_size=s)  # 根据对应系数构建efficientnet的整个网络参数
     else:
         raise NotImplementedError('model name is not pre-defined: %s' % model_name)
-    if override_params:
+    if override_params:  # 自定义的覆盖
         # ValueError will be raised here if override_params has fields not included in global_params.
         global_params = global_params._replace(**override_params)
     return blocks_args, global_params
