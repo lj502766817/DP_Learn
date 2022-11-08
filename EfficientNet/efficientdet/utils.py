@@ -54,7 +54,7 @@ class ClipBoxes(nn.Module):
 
 class Anchors(nn.Module):
     """
-    adapted and modified from https://github.com/google/automl/blob/master/efficientdet/anchors.py by Zylo117
+    adapted and modified from https://github.com/google/automl/blob/master/efficientdet/anchors.py by Zylo117 把在原始图上的anchor缩放到对应特征图上
     """
 
     def __init__(self, anchor_scale=4., pyramid_levels=None, **kwargs):
