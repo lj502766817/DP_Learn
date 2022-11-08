@@ -12,7 +12,7 @@ class EfficientDetBackbone(nn.Module):  # 构建检测任务的基础网络
         super(EfficientDetBackbone, self).__init__()
         self.compound_coef = compound_coef
 
-        self.backbone_compound_coef = [0, 1, 2, 3, 4, 5, 6, 6, 7]
+        self.backbone_compound_coef = [0, 1, 2, 3, 4, 5, 6, 6, 7]  # 这里就是一些不同版本的EfficientDet对应的参数,卷积核个数,堆叠次数,输入图片大小等等
         self.fpn_num_filters = [64, 88, 112, 160, 224, 288, 384, 384, 384]
         self.fpn_cell_repeats = [3, 4, 5, 6, 7, 7, 8, 8, 8]
         self.input_sizes = [512, 640, 768, 896, 1024, 1280, 1280, 1536, 1536]
@@ -36,7 +36,7 @@ class EfficientDetBackbone(nn.Module):  # 构建检测任务的基础网络
 
         num_anchors = len(self.aspect_ratios) * self.num_scales
 
-        self.bifpn = nn.Sequential(
+        self.bifpn = nn.Sequential(  # 构建BiFPN层
             *[BiFPN(self.fpn_num_filters[self.compound_coef],
                     conv_channel_coef[compound_coef],
                     True if _ == 0 else False,
@@ -44,7 +44,7 @@ class EfficientDetBackbone(nn.Module):  # 构建检测任务的基础网络
                     use_p8=compound_coef > 7)
               for _ in range(self.fpn_cell_repeats[compound_coef])])
 
-        self.num_classes = num_classes
+        self.num_classes = num_classes  # 检测头
         self.regressor = Regressor(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors,
                                    num_layers=self.box_class_repeats[self.compound_coef],
                                    pyramid_levels=self.pyramid_levels[self.compound_coef])
@@ -57,7 +57,7 @@ class EfficientDetBackbone(nn.Module):  # 构建检测任务的基础网络
                                pyramid_levels=(torch.arange(self.pyramid_levels[self.compound_coef]) + 3).tolist(),
                                **kwargs)
 
-        self.backbone_net = EfficientNet(self.backbone_compound_coef[compound_coef], load_weights)
+        self.backbone_net = EfficientNet(self.backbone_compound_coef[compound_coef], load_weights)  # 初始提特征的backbone
 
     def freeze_bn(self):
         for m in self.modules():
@@ -67,7 +67,7 @@ class EfficientDetBackbone(nn.Module):  # 构建检测任务的基础网络
     def forward(self, inputs):
         max_size = inputs.shape[-1]
 
-        _, p3, p4, p5 = self.backbone_net(inputs)
+        _, p3, p4, p5 = self.backbone_net(inputs)  # 通过EfficientNet的backbone来得到p3,p4,p5层的特征
 
         features = (p3, p4, p5)
         features = self.bifpn(features)
