@@ -13,7 +13,7 @@ def nms(dets, thresh):
 
 class SeparableConvBlock(nn.Module):
     """
-    created by Zylo117
+    created by Zylo117,独立卷积
     """
 
     def __init__(self, in_channels, out_channels=None, norm=True, activation=False, onnx_export=False):
@@ -39,7 +39,7 @@ class SeparableConvBlock(nn.Module):
         if self.activation:
             self.swish = MemoryEfficientSwish() if not onnx_export else Swish()
 
-    def forward(self, x):
+    def forward(self, x):  # 这里就用depthwise和pointwise两种卷积来做特征的融合
         x = self.depthwise_conv(x)
         x = self.pointwise_conv(x)
 
@@ -71,9 +71,9 @@ class BiFPN(nn.Module):
         """
         super(BiFPN, self).__init__()
         self.epsilon = epsilon
-        self.use_p8 = use_p8
+        self.use_p8 = use_p8  # 有没有p8层,B0的设置是没有p8层
 
-        # Conv layers
+        # Conv layers 这里的几个卷积都是在FPN几个结点的特征图相加后,做特征融合用的
         self.conv6_up = SeparableConvBlock(num_channels, onnx_export=onnx_export)
         self.conv5_up = SeparableConvBlock(num_channels, onnx_export=onnx_export)
         self.conv4_up = SeparableConvBlock(num_channels, onnx_export=onnx_export)
@@ -86,7 +86,7 @@ class BiFPN(nn.Module):
             self.conv7_up = SeparableConvBlock(num_channels, onnx_export=onnx_export)
             self.conv8_down = SeparableConvBlock(num_channels, onnx_export=onnx_export)
 
-        # Feature scaling layers
+        # Feature scaling layers 上采样/下采样的方法
         self.p6_upsample = nn.Upsample(scale_factor=2, mode='nearest')
         self.p5_upsample = nn.Upsample(scale_factor=2, mode='nearest')
         self.p4_upsample = nn.Upsample(scale_factor=2, mode='nearest')
@@ -103,7 +103,7 @@ class BiFPN(nn.Module):
         self.swish = MemoryEfficientSwish() if not onnx_export else Swish()
 
         self.first_time = first_time
-        if self.first_time:
+        if self.first_time:  # 看是不是第一次进BiFPN层
             self.p5_down_channel = nn.Sequential(
                 Conv2dStaticSamePadding(conv_channels[2], num_channels, 1),
                 nn.BatchNorm2d(num_channels, momentum=0.01, eps=1e-3),
@@ -139,7 +139,7 @@ class BiFPN(nn.Module):
                 nn.BatchNorm2d(num_channels, momentum=0.01, eps=1e-3),
             )
 
-        # Weight
+        # Weight 结点融合的权重初始化,两个结点就是[1,1]表示两个结点各分0.5,三个结点就以此类推
         self.p6_w1 = nn.Parameter(torch.ones(2, dtype=torch.float32), requires_grad=True)
         self.p6_w1_relu = nn.ReLU()
         self.p5_w1 = nn.Parameter(torch.ones(2, dtype=torch.float32), requires_grad=True)
@@ -192,17 +192,17 @@ class BiFPN(nn.Module):
         return outs
 
     def _forward_fast_attention(self, inputs):
-        if self.first_time:
+        if self.first_time:  # 第一次进来是没有p6和p7层的,所以用p5继续卷积把p6和p7层做出来
             p3, p4, p5 = inputs
 
-            p6_in = self.p5_to_p6(p5)
-            p7_in = self.p6_to_p7(p6_in)
+            p6_in = self.p5_to_p6(p5)  # (12,64,8,8)
+            p7_in = self.p6_to_p7(p6_in)  # (12,64,4,4)
 
-            p3_in = self.p3_down_channel(p3)
+            p3_in = self.p3_down_channel(p3)  # 因为backbone里输出的p3,p4,p5层的特征图数量都是不一样的,所以这里先用卷积把特征图的数量统一到64
             p4_in = self.p4_down_channel(p4)
             p5_in = self.p5_down_channel(p5)
 
-        else:
+        else:  # 重复进来的时候就是前一层FPN的输出了,都是有特征图的
             # P3_0, P4_0, P5_0, P6_0 and P7_0
             p3_in, p4_in, p5_in, p6_in, p7_in = inputs
 
@@ -210,9 +210,9 @@ class BiFPN(nn.Module):
 
         # Weights for P6_0 and P7_0 to P6_1
         p6_w1 = self.p6_w1_relu(self.p6_w1)
-        weight = p6_w1 / (torch.sum(p6_w1, dim=0) + self.epsilon)
+        weight = p6_w1 / (torch.sum(p6_w1, dim=0) + self.epsilon)  # 权重值经过激活函数之后,算一下权重比例
         # Connections for P6_0 and P7_0 to P6_1 respectively
-        p6_up = self.conv6_up(self.swish(weight[0] * p6_in + weight[1] * self.p6_upsample(p7_in)))
+        p6_up = self.conv6_up(self.swish(weight[0] * p6_in + weight[1] * self.p6_upsample(p7_in)))  # 将权重值乘上需要融合的结点然后加起来得到中间的结点
 
         # Weights for P5_0 and P6_1 to P5_1
         p5_w1 = self.p5_w1_relu(self.p5_w1)
@@ -241,7 +241,7 @@ class BiFPN(nn.Module):
         weight = p4_w2 / (torch.sum(p4_w2, dim=0) + self.epsilon)
         # Connections for P4_0, P4_1 and P3_2 to P4_2 respectively
         p4_out = self.conv4_down(
-            self.swish(weight[0] * p4_in + weight[1] * p4_up + weight[2] * self.p4_downsample(p3_out)))
+            self.swish(weight[0] * p4_in + weight[1] * p4_up + weight[2] * self.p4_downsample(p3_out)))  # 这里就是BiFPN的输出结点,是三个结点的特征图通过权重加起来的结果
 
         # Weights for P5_0, P5_1 and P4_2 to P5_2
         p5_w2 = self.p5_w2_relu(self.p5_w2)
@@ -263,7 +263,7 @@ class BiFPN(nn.Module):
         # Connections for P7_0 and P6_2 to P7_2
         p7_out = self.conv7_down(self.swish(weight[0] * p7_in + weight[1] * self.p7_downsample(p6_out)))
 
-        return p3_out, p4_out, p5_out, p6_out, p7_out
+        return p3_out, p4_out, p5_out, p6_out, p7_out  # 特征图的大小是64,32,16,8,4,特征图个数都是64的
 
     def _forward(self, inputs):
         if self.first_time:
@@ -343,7 +343,7 @@ class BiFPN(nn.Module):
 
 class Regressor(nn.Module):
     """
-    modified by Zylo117
+    modified by Zylo117 通过回归来找box的预测
     """
 
     def __init__(self, in_channels, num_anchors, num_layers, pyramid_levels=5, onnx_export=False):
@@ -355,19 +355,19 @@ class Regressor(nn.Module):
         self.bn_list = nn.ModuleList(
             [nn.ModuleList([nn.BatchNorm2d(in_channels, momentum=0.01, eps=1e-3) for i in range(num_layers)]) for j in
              range(pyramid_levels)])
-        self.header = SeparableConvBlock(in_channels, num_anchors * 4, norm=False, activation=False)
+        self.header = SeparableConvBlock(in_channels, num_anchors * 4, norm=False, activation=False)  # 一个anchor对应一个box数据
         self.swish = MemoryEfficientSwish() if not onnx_export else Swish()
 
     def forward(self, inputs):
         feats = []
         for feat, bn_list in zip(inputs, self.bn_list):
-            for i, bn, conv in zip(range(self.num_layers), bn_list, self.conv_list):
+            for i, bn, conv in zip(range(self.num_layers), bn_list, self.conv_list):  # 这里对每种特征图,以及对应的bn层,卷积层组合在一起,做三次卷积来融合特征
                 feat = conv(feat)
                 feat = bn(feat)
                 feat = self.swish(feat)
-            feat = self.header(feat)
+            feat = self.header(feat)  # 把这一层特征图的结果通过卷积做成检测框的输出
 
-            feat = feat.permute(0, 2, 3, 1)
+            feat = feat.permute(0, 2, 3, 1)  # 调整一下格式
             feat = feat.contiguous().view(feat.shape[0], -1, 4)
 
             feats.append(feat)
@@ -379,7 +379,7 @@ class Regressor(nn.Module):
 
 class Classifier(nn.Module):
     """
-    modified by Zylo117
+    modified by Zylo117 做分类
     """
 
     def __init__(self, in_channels, num_anchors, num_classes, num_layers, pyramid_levels=5, onnx_export=False):
@@ -392,13 +392,13 @@ class Classifier(nn.Module):
         self.bn_list = nn.ModuleList(
             [nn.ModuleList([nn.BatchNorm2d(in_channels, momentum=0.01, eps=1e-3) for i in range(num_layers)]) for j in
              range(pyramid_levels)])
-        self.header = SeparableConvBlock(in_channels, num_anchors * num_classes, norm=False, activation=False)
+        self.header = SeparableConvBlock(in_channels, num_anchors * num_classes, norm=False, activation=False)  # 一个anchor对应多种分类
         self.swish = MemoryEfficientSwish() if not onnx_export else Swish()
 
     def forward(self, inputs):
         feats = []
         for feat, bn_list in zip(inputs, self.bn_list):
-            for i, bn, conv in zip(range(self.num_layers), bn_list, self.conv_list):
+            for i, bn, conv in zip(range(self.num_layers), bn_list, self.conv_list):  # 这里就每层特征图做正常的每个cell做逻辑回归来进行分类
                 feat = conv(feat)
                 feat = bn(feat)
                 feat = self.swish(feat)
