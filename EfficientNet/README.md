@@ -30,5 +30,7 @@
 
 以EfficientNet做backbone的目标检测网络.整体的网络结构就是EfficientNet+BiFPN.
 
+![EfficientDet网络](https://user-images.githubusercontent.com/28779173/200460283-7ae97647-1f97-4022-8a8d-a13c4105d20f.png)
+
 #### BiFPN
 
