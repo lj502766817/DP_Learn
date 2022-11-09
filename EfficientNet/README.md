@@ -30,5 +30,8 @@
 
 以EfficientNet做backbone的目标检测网络.整体的网络结构就是EfficientNet+BiFPN.
 
+![EfficientDet网络](https://user-images.githubusercontent.com/28779173/200460283-7ae97647-1f97-4022-8a8d-a13c4105d20f.png)
+
 #### BiFPN
 
+BiFPN和一般的FPN在基础结构上是一致的.只是BiFPN的一个输出结点是由三部分加起来的:原始的输出,下一级经过上采样后与原始输出加起来的输出,上以及通过下采样后的输出.并且每次特征图的相加都是有权重值的参与.判断哪个特征图应该加多少上去.

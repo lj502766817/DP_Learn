@@ -25,7 +25,7 @@ def calc_iou(a, b):
 
 
 class FocalLoss(nn.Module):
-    def __init__(self):
+    def __init__(self):  # 计算IOU和分类的损失
         super(FocalLoss, self).__init__()
 
     def forward(self, classifications, regressions, anchors, annotations, **kwargs):
@@ -38,12 +38,12 @@ class FocalLoss(nn.Module):
         anchor = anchors[0, :, :]  # assuming all image sizes are the same, which it is
         dtype = anchors.dtype
 
-        anchor_widths = anchor[:, 3] - anchor[:, 1]
+        anchor_widths = anchor[:, 3] - anchor[:, 1]  # 这里做下坐标尺度的转换
         anchor_heights = anchor[:, 2] - anchor[:, 0]
         anchor_ctr_x = anchor[:, 1] + 0.5 * anchor_widths
         anchor_ctr_y = anchor[:, 0] + 0.5 * anchor_heights
 
-        for j in range(batch_size):
+        for j in range(batch_size):  # 按照每个batch来计算损失
 
             classification = classifications[j, :, :]
             regression = regressions[j, :, :]
