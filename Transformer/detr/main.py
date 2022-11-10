@@ -240,6 +240,7 @@ def main(args):
     print('Training time {}'.format(total_time_str))
 
 
+# --coco_path G:\BaiduNetdiskDownload\dataSet\COCO-DATA
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('DETR training and evaluation script', parents=[get_args_parser()])
     args = parser.parse_args()
