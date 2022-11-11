@@ -267,8 +267,8 @@ def get_sha():
 
 
 def collate_fn(batch):
-    batch = list(zip(*batch))
-    batch[0] = nested_tensor_from_tensor_list(batch[0])
+    batch = list(zip(*batch))  # 这里把batch分两组,一组是图片,一组是标注
+    batch[0] = nested_tensor_from_tensor_list(batch[0])  # 把这个批次的图片数据处理成大小一样的
     return tuple(batch)
 
 
@@ -305,7 +305,7 @@ class NestedTensor(object):
 
 
 def nested_tensor_from_tensor_list(tensor_list: List[Tensor]):
-    # TODO make this more general
+    # TODO make this more general  这个函数是把图片这批图片处理成大小一样的,小的就用0补齐,并用一个mask矩阵表示哪里是补0的
     if tensor_list[0].ndim == 3:
         if torchvision._is_tracing():
             # nested_tensor_from_tensor_list() does not export well to ONNX
