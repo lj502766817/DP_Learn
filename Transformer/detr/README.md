@@ -3,3 +3,5 @@
 Detr属于是在one-stage的目标检测开辟了一个新的领域.之前的fast-rcnn,yolo这些都是围绕这anchor来的.并且最后都是需要通过NMS来做过滤.这里的anchor就属于是一些人为的因素在里面,并且NMS也是一个比较耗时的操作.而基于transformer架构的Detr是属于一个完全排除了人为因素,不使用anchor,直接给出检测框的一个网络.
 
 Detr的基本思路就是:首先使用CNN来将图片切成一个个patch,然后经过transformer的encode(这一步和ViT基本是一样的),最后通过decoder直接得到100(这个100是直接写死的)个检测的坐标框.
+![Detr网络结构](https://user-images.githubusercontent.com/28779173/201287246-45349e08-eb03-46f5-a997-eb02fdac88e0.png)
+
