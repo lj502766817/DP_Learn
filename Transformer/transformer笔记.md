@@ -46,6 +46,58 @@ $$ \vec{Z}=softmax({{\vec Q \cdot \vec K}\over \sqrt{d_k}})\cdot \vec{V} $$
 除了考虑上下文以外,位置信息也有重要的影响,例如:我打你,你打我,这两句话虽然有相同的字,但是表达的意思完全不同.所以transformer在做encoder的时候还会把位置信息加进去,例如:
 第一个token加上位置信息1,第二个token加上位置信息2...,一般我们会想用one-hot编码来表达位置信息,像1000,0100,这种.不过实际情况下是用正余弦编码器来实现.
 
+##### 正余弦位置编码
+
+论文中的位置编码是一个 $d$ (这个 $d$ 需要能被2整除)维的向量.这个向量可以表示一个位置的特征,为每个单词表示它在句子中的位置.定义位置编码的函数:
+
+$$
+\vec{p_t}^{(i)}=f(t)^{(i)}=
+\begin{cases}
+sin(\omega_k\cdot t),\quad i=2k\\
+cos(\omega_k\cdot t), \quad i=2k+1
+\end{cases}
+$$
+
+其中 $\omega_k={1 \over 10000^{2k \over d}}$ , $i$ 表示第 $d$ 维向量中第几个.那么最后这个位置编码向量就是这样的形式:
+
+$$
+\vec{p_t}=
+\left[
+\begin{matrix}
+sin(\omega_1\cdot t)  \\
+cos(\omega_1\cdot t)  \\
+sin(\omega_2\cdot t)  \\
+cos(\omega_2\cdot t)  \\
+\vdots  \\
+sin(\omega_{d \over 2}\cdot t)  \\
+cos(\omega_{d \over 2}\cdot t)  \\
+\end{matrix}
+\right]
+$$
+
+并且这个正余弦编码也能表达各个位置的相对关系:
+
+$$
+M \cdot
+\left[
+\begin{matrix}
+sin(\omega_k\cdot t)  \\
+cos(\omega_k\cdot t)  \\
+\end{matrix}
+\right]
+=
+\left[
+\begin{matrix}
+sin(\omega_k\cdot (t+\phi))  \\
+cos(\omega_k\cdot (t+\phi))  \\
+\end{matrix}
+\right]
+$$
+
+其中 $M$ 是可求的,并且与 $t$ 无关.
+
+
+
 #### 残差连接和归一化
 
 在每一个block做完之后,将原始的输入数据与做完encoder之后的结果相加,进行残差链接,类似于resnet.并且将做完残连接后的数据做一个Layer Normalization(在每一层对单个样本的所有神经元节点进行规范化)
