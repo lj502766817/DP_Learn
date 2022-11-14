@@ -85,7 +85,7 @@ sin(\omega_k\cdot t)  \\
 cos(\omega_k\cdot t)  \\
 \end{matrix}
 \right]
-=
+\=
 \left[
 \begin{matrix}
 sin(\omega_k\cdot (t+\phi))  \\
