@@ -29,8 +29,8 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
-        outputs = model(samples)
-        loss_dict = criterion(outputs, targets)
+        outputs = model(samples)  # 输出分类的结果,bbox的结果,如果有aux,连着前面层的结果也输出
+        loss_dict = criterion(outputs, targets)  # 这里计算损失
         weight_dict = criterion.weight_dict
         losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
 
