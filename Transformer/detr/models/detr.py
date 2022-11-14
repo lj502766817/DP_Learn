@@ -31,11 +31,11 @@ class DETR(nn.Module):
             aux_loss: True if auxiliary decoding losses (loss at each decoder layer) are to be used.
         """
         super().__init__()
-        self.num_queries = num_queries
+        self.num_queries = num_queries  # query向量的个数,基本100定死了
         self.transformer = transformer
         hidden_dim = transformer.d_model
         self.class_embed = nn.Linear(hidden_dim, num_classes + 1)
-        self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
+        self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)  # 这也是一个多层感知机了
         self.query_embed = nn.Embedding(num_queries, hidden_dim)
         self.input_proj = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)
         self.backbone = backbone
@@ -58,14 +58,14 @@ class DETR(nn.Module):
         """
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
-        features, pos = self.backbone(samples)
+        features, pos = self.backbone(samples)  # backbone先提一波特征,然后做下位置编码
 
-        src, mask = features[-1].decompose()
+        src, mask = features[-1].decompose()  # 取出特征图和mask
         assert mask is not None
-        hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])[0]
+        hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])[0]  # 把特征图做一个1×1的卷积改成256层的,然后和mask,初始的query向量,位置编码一起去做transformer
 
-        outputs_class = self.class_embed(hs)
-        outputs_coord = self.bbox_embed(hs).sigmoid()
+        outputs_class = self.class_embed(hs)  # 用query向量来做分类的结果
+        outputs_coord = self.bbox_embed(hs).sigmoid()  # 这里做出bbox的4个点
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}
         if self.aux_loss:
             out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
@@ -310,25 +310,25 @@ def build(args):
     # you should pass `num_classes` to be 2 (max_obj_id + 1).
     # For more details on this, check the following discussion
     # https://github.com/facebookresearch/detr/issues/108#issuecomment-650269223
-    num_classes = 20 if args.dataset_file != 'coco' else 91
+    num_classes = 20 if args.dataset_file != 'coco' else 91  # 分类数+一个背景,这里根据自己的任务要改
     if args.dataset_file == "coco_panoptic":
         # for panoptic, we just add a num_classes that is large enough to hold
         # max_obj_id + 1, but the exact value doesn't really matter
         num_classes = 250
     device = torch.device(args.device)
 
-    backbone = build_backbone(args)
+    backbone = build_backbone(args)  # backbone提特征
 
-    transformer = build_transformer(args)
+    transformer = build_transformer(args)  # 构建transformer做注意力机制
 
     model = DETR(
         backbone,
         transformer,
         num_classes=num_classes,
         num_queries=args.num_queries,
-        aux_loss=args.aux_loss,
-    )
-    if args.masks:
+        aux_loss=args.aux_loss,  # aux_loss表示要不要多层的损失放一起
+    )  # 这个就是最后的检测的输出层了
+    if args.masks:  # 目标检测任务没这个
         model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
     matcher = build_matcher(args)
     weight_dict = {'loss_ce': 1, 'loss_bbox': args.bbox_loss_coef}
@@ -337,7 +337,7 @@ def build(args):
         weight_dict["loss_mask"] = args.mask_loss_coef
         weight_dict["loss_dice"] = args.dice_loss_coef
     # TODO this is a hack
-    if args.aux_loss:
+    if args.aux_loss:  # aux_loss就是针对decoder的输出,每一层都可以做loss
         aux_weight_dict = {}
         for i in range(args.dec_layers - 1):
             aux_weight_dict.update({k + f'_{i}': v for k, v in weight_dict.items()})
@@ -347,7 +347,7 @@ def build(args):
     if args.masks:
         losses += ["masks"]
     criterion = SetCriterion(num_classes, matcher=matcher, weight_dict=weight_dict,
-                             eos_coef=args.eos_coef, losses=losses)
+                             eos_coef=args.eos_coef, losses=losses)  # 定义损失函数,GT的损失,分类的损失,IOU的损失
     criterion.to(device)
     postprocessors = {'bbox': PostProcess()}
     if args.masks:
