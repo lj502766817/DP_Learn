@@ -75,9 +75,9 @@ class BackboneBase(nn.Module):
         for name, x in xs.items():
             m = tensor_list.mask
             assert m is not None
-            mask = F.interpolate(m[None].float(), size=x.shape[-2:]).to(torch.bool)[0]
+            mask = F.interpolate(m[None].float(), size=x.shape[-2:]).to(torch.bool)[0]  # 将mask根据输出特征图做上下采样,把mask和特征图统一起来
             out[name] = NestedTensor(x, mask)
-        return out
+        return out  # 最后返回特征图和对应的mask
 
 
 class Backbone(BackboneBase):
@@ -98,7 +98,7 @@ class Joiner(nn.Sequential):
         super().__init__(backbone, position_embedding)
 
     def forward(self, tensor_list: NestedTensor):
-        xs = self[0](tensor_list)
+        xs = self[0](tensor_list)  # 第一层直接是resnet提特征图出来
         out: List[NestedTensor] = []
         pos = []
         for name, x in xs.items():
@@ -110,10 +110,10 @@ class Joiner(nn.Sequential):
 
 
 def build_backbone(args):
-    position_embedding = build_position_encoding(args)
+    position_embedding = build_position_encoding(args)  # 位置编码
     train_backbone = args.lr_backbone > 0
     return_interm_layers = args.masks
-    backbone = Backbone(args.backbone, train_backbone, return_interm_layers, args.dilation)
+    backbone = Backbone(args.backbone, train_backbone, return_interm_layers, args.dilation)  # 直接用resnet来提特征
     model = Joiner(backbone, position_embedding)
     model.num_channels = backbone.num_channels
     return model
