@@ -12,10 +12,10 @@
 
 由于实际是一个像素点的分类,因此损失函数基本是一个交叉熵损失函数了.
 
-不过由于还需要考虑样本的均衡问题,因此还会附加一个权重值 $pos\_weight={num\_neg \over num\_pos}$ ,那么附加权重后的交叉熵损失函数就是:
+不过由于还需要考虑样本的均衡问题,因此还会附加一个权重值 $posWeight={numNeg \over numPos}$ ,那么附加权重后的交叉熵损失函数就是:
 
 $$
-loss=pos\_weight \times y_{true}log(y_{pred}) - (1-y_{true})log(1-y_{pred})
+loss=posWeight \times y_{true}log(y_{pred}) - (1-y_{true})log(1-y_{pred})
 $$
 
 ##### Focal Loss
