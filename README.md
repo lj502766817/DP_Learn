@@ -1,4 +1,4 @@
-## DP_Learn
+## 深度学习笔记目录
 
 * [TensorFlow基本操作](https://github.com/lj502766817/DP_Learn/tree/main/TF)
 
@@ -43,5 +43,20 @@
     基于Transformer架构的目标检测网络
 
 * [OpenCV](https://github.com/lj502766817/DP_Learn/tree/main/opencv)
+
   * [OpenCV的基础操作](https://github.com/lj502766817/DP_Learn/tree/main/opencv/base)
+
+    图像的读取;图像边界填充;图像阈值处理;图像的滤波;腐蚀操作;膨胀操作;开运算;闭运算;顶帽与黑帽操作;图像的梯度计算;canny边缘检测;图像金字塔;图像的轮廓检测;图像的轮廓处理;图像的傅里叶变换;图像的直方图信息;直方图均衡化;图像的模板匹配
+
+    * [SIFT特征检测]([https://github.com/lj502766817/DP_Learn/tree/main/opencv/base/SIFT%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B](https://github.com/lj502766817/DP_Learn/tree/main/opencv/base/SIFT特征检测))
+    * [harris角点检测]([https://github.com/lj502766817/DP_Learn/tree/main/opencv/base/harris%E8%A7%92%E7%82%B9%E6%A3%80%E6%B5%8B](https://github.com/lj502766817/DP_Learn/tree/main/opencv/base/harris角点检测))
+
   * [图片拼接Demo](https://github.com/lj502766817/DP_Learn/tree/main/opencv/image_stiching)
+
+    使用SIFT做关键点检测,然后对图片做仿射变换,然后把图拼一起
+
+  * [使用OpenCV做OCR Demo](https://github.com/lj502766817/DP_Learn/tree/main/opencv/ocr)
+
+    银行卡OCR的Demo;文档扫描OCR的Demo;
+
+* [YOLO系列源码解析](https://github.com/lj502766817/DP_Learn/tree/main/YOLO)
