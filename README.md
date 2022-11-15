@@ -60,3 +60,16 @@
     银行卡OCR的Demo;文档扫描OCR的Demo;
 
 * [YOLO系列源码解析](https://github.com/lj502766817/DP_Learn/tree/main/YOLO)
+
+  * [YOLO-V3解析](https://github.com/lj502766817/DP_Learn/tree/main/YOLO/V3)
+  * [YOLO-V5解析](https://github.com/lj502766817/DP_Learn/tree/main/YOLO/V5)
+
+* [EfficientDet源码解析](https://github.com/lj502766817/DP_Learn/tree/main/EfficientNet)
+
+  EfficientNet做Backbone的目标检测算法
+
+* [分割算法源码解析](https://github.com/lj502766817/DP_Learn/tree/main/segmentation)
+
+  * [UNet++源码解析](https://github.com/lj502766817/DP_Learn/tree/main/segmentation/Unet%2B%2B)
+
+    
