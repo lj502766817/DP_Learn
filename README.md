@@ -48,8 +48,8 @@
 
     图像的读取;图像边界填充;图像阈值处理;图像的滤波;腐蚀操作;膨胀操作;开运算;闭运算;顶帽与黑帽操作;图像的梯度计算;canny边缘检测;图像金字塔;图像的轮廓检测;图像的轮廓处理;图像的傅里叶变换;图像的直方图信息;直方图均衡化;图像的模板匹配
 
-    * [SIFT特征检测]([https://github.com/lj502766817/DP_Learn/tree/main/opencv/base/SIFT%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B](https://github.com/lj502766817/DP_Learn/tree/main/opencv/base/SIFT特征检测))
-    * [harris角点检测]([https://github.com/lj502766817/DP_Learn/tree/main/opencv/base/harris%E8%A7%92%E7%82%B9%E6%A3%80%E6%B5%8B](https://github.com/lj502766817/DP_Learn/tree/main/opencv/base/harris角点检测))
+    * [SIFT特征检测](https://github.com/lj502766817/DP_Learn/tree/main/opencv/base/SIFT%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B)
+    * [harris角点检测](https://github.com/lj502766817/DP_Learn/tree/main/opencv/base/harris%E8%A7%92%E7%82%B9%E6%A3%80%E6%B5%8B)
 
   * [图片拼接Demo](https://github.com/lj502766817/DP_Learn/tree/main/opencv/image_stiching)
 
