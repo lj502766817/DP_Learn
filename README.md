@@ -24,4 +24,24 @@
 
     使用Flask部署一个模型;
 
-* [Transformer系列](https://github.com/lj502766817/DP_Learn/tree/main/Transformer)
+* [Transformer系列源码解析](https://github.com/lj502766817/DP_Learn/tree/main/Transformer)
+
+  * [Vision Transformer](https://github.com/lj502766817/DP_Learn/tree/main/Transformer/ViT)
+
+    Transformer在视觉领域的使用
+
+  * [Swin Transformer](https://github.com/lj502766817/DP_Learn/tree/main/Transformer/swintransformer)
+
+    基于滑动窗口的ViT
+
+  * [Informer](https://github.com/lj502766817/DP_Learn/tree/main/Transformer/swintransformer)
+
+    基于Transformer架构的时间序列预测网络
+
+  * [Detr](https://github.com/lj502766817/DP_Learn/tree/main/Transformer/detr)
+
+    基于Transformer架构的目标检测网络
+
+* [OpenCV](https://github.com/lj502766817/DP_Learn/tree/main/opencv)
+  * [OpenCV的基础操作](https://github.com/lj502766817/DP_Learn/tree/main/opencv/base)
+  * [图片拼接Demo](https://github.com/lj502766817/DP_Learn/tree/main/opencv/image_stiching)
