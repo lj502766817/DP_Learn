@@ -34,7 +34,7 @@
 
     基于滑动窗口的ViT
 
-  * [Informer](https://github.com/lj502766817/DP_Learn/tree/main/Transformer/swintransformer)
+  * [Informer](https://github.com/lj502766817/DP_Learn/tree/main/Transformer/Informer)
 
     基于Transformer架构的时间序列预测网络
 
