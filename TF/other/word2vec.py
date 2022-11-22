@@ -2,9 +2,7 @@
 训练词向量模型
 """
 import collections
-import os
 import random
-import urllib
 import zipfile
 
 import numpy as np
@@ -38,7 +36,7 @@ num_skips = 2
 # 负采样
 num_sampled = 64
 
-# 加载训练数据,格式无所谓,读得到就行
+# 加载训练数据
 data_path = './data/text8.zip'
 with zipfile.ZipFile(data_path) as f:
     text_words = f.read(f.namelist()[0]).lower().split()
@@ -49,7 +47,7 @@ print(len(text_words))
 count = [('UNK', -1)]
 # 基于词频返回max_vocabulary_size个常用词
 count.extend(collections.Counter(text_words).most_common(max_vocabulary_size - 1))
-# Counter的结果默认是从大到小排序的
+# Counter的结果默认是从大到小排序的,打印出现次数前十的
 print(count[0:10])
 
 # 剔除掉出现次数少于'min_occurrence'的词
@@ -118,9 +116,88 @@ def next_batch(batch_size, num_skips, skip_window):
             buffer.extend(data[0:span])
             data_index = span
         else:
-            buffer.append(data[
-                              data_index])  # 之前已经传入7个词了，窗口要右移了，例如原来为[5234, 3081, 12, 6, 195, 2, 3134]，现在为[3081, 12, 6, 195, 2, 3134, 46]
+            # 之前已经传入7个词了，窗口要右移了，例如原来为[5234, 3081, 12, 6, 195, 2, 3134]，现在为[3081, 12, 6, 195, 2, 3134, 46]
+            buffer.append(data[data_index])
             data_index += 1
 
     data_index = (data_index + len(data) - span) % len(data)
     return batch, labels
+
+
+with tf.device('/cpu:0'):
+    embedding = tf.Variable(tf.random.normal([vocabulary_size, embedding_size]))  # 维度：47135, 200
+    nce_weights = tf.Variable(tf.random.normal([vocabulary_size, embedding_size]))
+    nce_biases = tf.Variable(tf.zeros([vocabulary_size]))
+
+
+def get_embedding(x):
+    with tf.device('/cpu:0'):
+        x_embed = tf.nn.embedding_lookup(embedding, x)
+        return x_embed
+
+
+def nce_loss(x_embed, y):
+    with tf.device('/cpu:0'):
+        y = tf.cast(y, tf.int64)
+        loss = tf.reduce_mean(
+            tf.nn.nce_loss(weights=nce_weights,
+                           biases=nce_biases,
+                           labels=y,
+                           inputs=x_embed,
+                           num_sampled=num_sampled,  # 采样出多少个负样本
+                           num_classes=vocabulary_size))
+        return loss
+
+
+# Evaluation.
+def evaluate(x_embed):
+    with tf.device('/cpu:0'):
+        # Compute the cosine similarity between input data embedding and every embedding vectors
+        x_embed = tf.cast(x_embed, tf.float32)
+        x_embed_norm = x_embed / tf.sqrt(tf.reduce_sum(tf.square(x_embed)))  # 归一化
+        embedding_norm = embedding / tf.sqrt(tf.reduce_sum(tf.square(embedding), 1, keepdims=True), tf.float32)  # 全部向量的
+        cosine_sim_op = tf.matmul(x_embed_norm, embedding_norm, transpose_b=True)  # 计算余弦相似度
+        return cosine_sim_op
+
+
+# SGD
+optimizer = tf.optimizers.SGD(learning_rate)
+
+
+# 迭代优化
+def run_optimization(x, y):
+    with tf.device('/cpu:0'):
+        with tf.GradientTape() as g:
+            emb = get_embedding(x)
+            loss = nce_loss(emb, y)
+
+        # 计算梯度
+        gradients = g.gradient(loss, [embedding, nce_weights, nce_biases])
+
+        # 更新
+        optimizer.apply_gradients(zip(gradients, [embedding, nce_weights, nce_biases]))
+
+
+# 待测试的几个词
+x_test = np.array([word2id[w.encode('utf-8')] for w in eval_words])
+
+# 训练
+for step in range(1, num_steps + 1):
+    batch_x, batch_y = next_batch(batch_size, num_skips, skip_window)
+    run_optimization(batch_x, batch_y)
+
+    if step % display_step == 0 or step == 1:
+        loss = nce_loss(get_embedding(batch_x), batch_y)
+        print("step: %i, loss: %f" % (step, loss))
+
+    # Evaluation.
+    if step % eval_step == 0 or step == 1:
+        print("Evaluation...")
+        sim = evaluate(get_embedding(x_test)).numpy()
+        for i in range(len(eval_words)):
+            top_k = 8  # 返回前8个最相似的
+            nearest = (-sim[i, :]).argsort()[1:top_k + 1]
+            log_str = '"%s" nearest neighbors:' % eval_words[i]
+            for k in range(top_k):
+                log_str = '%s %s,' % (log_str, id2word[nearest[k]])
+            print(log_str)
