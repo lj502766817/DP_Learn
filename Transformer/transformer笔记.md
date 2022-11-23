@@ -111,3 +111,5 @@ $$
 decoder之后的结果我们再做linear和softmax,就能得到一个预测的机器翻译的序列了
 
 ![transformer](https://user-images.githubusercontent.com/28779173/190123789-dc4335e2-ba6f-4252-abc8-ab962179a89d.jpg)
+
+原论文地址:https://arxiv.org/pdf/1706.03762v5.pdf
