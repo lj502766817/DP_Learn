@@ -287,6 +287,6 @@ PAN的做法来自于FPN.
 
 ### YOLO-V7
 
-TODO
+todo,主要是推理加速方面
 
 
