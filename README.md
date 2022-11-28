@@ -41,6 +41,9 @@
   * [Detr](https://github.com/lj502766817/DP_Learn/tree/main/Transformer/detr)
 
     基于Transformer架构的目标检测网络
+  
+  * [bert](https://github.com/lj502766817/DP_Learn/tree/main/Transformer/bert/bert-tf2)
+    基于Transformer架构的nlp网络,以同义句为例子的源码解析
 
 * [OpenCV](https://github.com/lj502766817/DP_Learn/tree/main/opencv)
 
