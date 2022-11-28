@@ -179,7 +179,7 @@ class BertModel(object):
             embedding_size=config.hidden_size,
             initializer_range=config.initializer_range,
             word_embedding_name="word_embeddings",
-            use_one_hot_embeddings=use_one_hot_embeddings)
+            use_one_hot_embeddings=use_one_hot_embeddings)  # 这里就把输入转换成了词向量
 
         # Add positional embeddings and token type embeddings, then layer
         # normalize and perform dropout.
@@ -193,9 +193,9 @@ class BertModel(object):
             position_embedding_name="position_embeddings",
             initializer_range=config.initializer_range,
             max_position_embeddings=config.max_position_embeddings,
-            dropout_prob=config.hidden_dropout_prob)
+            dropout_prob=config.hidden_dropout_prob)  # 除了转换成词向量,还要把句子的标志信息和位置编码也加上去
 
-      with tf.variable_scope("encoder"):
+      with tf.variable_scope("encoder"):  # TODO:debug到这
         # This converts a 2D mask of shape [batch_size, seq_length] to a 3D
         # mask of shape [batch_size, seq_length, seq_length] which is used
         # for the attention scores.
@@ -405,25 +405,25 @@ def embedding_lookup(input_ids,
   #
   # If the input is a 2D tensor of shape [batch_size, seq_length], we
   # reshape to [batch_size, seq_length, 1].
-  if input_ids.shape.ndims == 2:  # TODO:debug到这
-    input_ids = tf.expand_dims(input_ids, axis=[-1])
+  if input_ids.shape.ndims == 2:
+    input_ids = tf.expand_dims(input_ids, axis=[-1])  # 扩展了维度(32,128)->(32,128,1)
 
-  embedding_table = tf.get_variable(
+  embedding_table = tf.get_variable(  # 这里是获取类词向量的一个大表(30522, 768)
       name=word_embedding_name,
       shape=[vocab_size, embedding_size],
       initializer=create_initializer(initializer_range))
 
-  flat_input_ids = tf.reshape(input_ids, [-1])
+  flat_input_ids = tf.reshape(input_ids, [-1])  # 把所有batch的数据做到一个里32*128=4096
   if use_one_hot_embeddings:
     one_hot_input_ids = tf.one_hot(flat_input_ids, depth=vocab_size)
     output = tf.matmul(one_hot_input_ids, embedding_table)
   else:
-    output = tf.gather(embedding_table, flat_input_ids)
+    output = tf.gather(embedding_table, flat_input_ids)  # 把所有的词id转换成对应的词向量(4096,768)
 
   input_shape = get_shape_list(input_ids)
 
   output = tf.reshape(output,
-                      input_shape[0:-1] + [input_shape[-1] * embedding_size])
+                      input_shape[0:-1] + [input_shape[-1] * embedding_size])  # 还原回去(4096,768)->(32,128,768)
   return (output, embedding_table)
 
 
@@ -471,30 +471,30 @@ def embedding_postprocessor(input_tensor,
 
   output = input_tensor
 
-  if use_token_type:
+  if use_token_type:  # 两个句子的话就走这里
     if token_type_ids is None:
       raise ValueError("`token_type_ids` must be specified if"
                        "`use_token_type` is True.")
     token_type_table = tf.get_variable(
         name=token_type_embedding_name,
         shape=[token_type_vocab_size, width],
-        initializer=create_initializer(initializer_range))
+        initializer=create_initializer(initializer_range))  # token类型的表,就是把0,1也转768维的向量,(2,768)
     # This vocab will be small so we always do one-hot here, since it is always
     # faster for a small vocabulary.
     flat_token_type_ids = tf.reshape(token_type_ids, [-1])
-    one_hot_ids = tf.one_hot(flat_token_type_ids, depth=token_type_vocab_size)
+    one_hot_ids = tf.one_hot(flat_token_type_ids, depth=token_type_vocab_size)  # 做成独热编码来进行计算
     token_type_embeddings = tf.matmul(one_hot_ids, token_type_table)
     token_type_embeddings = tf.reshape(token_type_embeddings,
-                                       [batch_size, seq_length, width])
-    output += token_type_embeddings
+                                       [batch_size, seq_length, width])  # (32, 128, 768)
+    output += token_type_embeddings  # 把token类型的编码加上去
 
-  if use_position_embeddings:
-    assert_op = tf.assert_less_equal(seq_length, max_position_embeddings)
+  if use_position_embeddings:  # 位置编码信息
+    assert_op = tf.assert_less_equal(seq_length, max_position_embeddings)  # 默认的位置编码长度最多512
     with tf.control_dependencies([assert_op]):
       full_position_embeddings = tf.get_variable(
           name=position_embedding_name,
           shape=[max_position_embeddings, width],
-          initializer=create_initializer(initializer_range))
+          initializer=create_initializer(initializer_range))  # 位置编码信息的表,是个可学习的变量,(512,768)
       # Since the position embedding table is a learned variable, we create it
       # using a (long) sequence length `max_position_embeddings`. The actual
       # sequence length might be shorter than this, for faster training of
@@ -505,7 +505,7 @@ def embedding_postprocessor(input_tensor,
       # sequence has positions [0, 1, 2, ... seq_length-1], so we can just
       # perform a slice.
       position_embeddings = tf.slice(full_position_embeddings, [0, 0],
-                                     [seq_length, -1])
+                                     [seq_length, -1])  # 这里是取出128的切片长度
       num_dims = len(output.shape.as_list())
 
       # Only the last two dimensions are relevant (`seq_length` and `width`), so
@@ -516,10 +516,10 @@ def embedding_postprocessor(input_tensor,
         position_broadcast_shape.append(1)
       position_broadcast_shape.extend([seq_length, width])
       position_embeddings = tf.reshape(position_embeddings,
-                                       position_broadcast_shape)
-      output += position_embeddings
+                                       position_broadcast_shape)  # 因为输入时32个batch的,这里把位置编码扩展到32个batch
+      output += position_embeddings  # 把位置编码也加上去
 
-  output = layer_norm_and_dropout(output, dropout_prob)
+  output = layer_norm_and_dropout(output, dropout_prob)  # ln和dropout
   return output
 
 
