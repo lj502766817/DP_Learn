@@ -18,7 +18,7 @@
 
   * [一些基本Demo](https://github.com/lj502766817/DP_Learn/tree/main/pytorch/basic_demo)
 
-    基础神经网络Demo;基础的卷积神经网络Demo;Dataloader的Demo;图片识别分类的Demo;LSTM文本分类的Demo;
+    基础神经网络Demo;基础的卷积神经网络Demo;Dataloader的Demo;图片识别分类的Demo;LSTM文本分类的Demo;基础的图卷积Demo
 
   * [Pytorch其他操作](https://github.com/lj502766817/DP_Learn/tree/main/pytorch/other)
 
