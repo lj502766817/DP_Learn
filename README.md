@@ -88,4 +88,8 @@
 
 一个在超大数据集上的位置检索的模型,模型和行人重识别的模型近似
 
+* https://github.com/facebookresearch/Mask2Former
+
+基于Transformer架构的分割模型
+
     
