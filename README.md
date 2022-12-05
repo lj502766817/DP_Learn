@@ -80,7 +80,12 @@
 
 ---
 欠账
-https://github.com/mims-harvard/Raindrop,基于GNN的非结构化数据的时间序列模型,医学数据集
-https://github.com/gmberton/CosPlace,一个在超大数据集上的位置检索的模型,模型和行人重识别的模型近似
+* https://github.com/mims-harvard/Raindrop
+
+基于GNN的非结构化数据的时间序列模型,医学数据集
+
+* https://github.com/gmberton/CosPlace
+
+一个在超大数据集上的位置检索的模型,模型和行人重识别的模型近似
 
     
