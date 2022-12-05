@@ -77,4 +77,10 @@
   * [UNet++源码解析](https://github.com/lj502766817/DP_Learn/tree/main/segmentation/Unet%2B%2B)
   * [DeepLab-V3+源码解析](https://github.com/lj502766817/DP_Learn/tree/main/segmentation/DeepLap)
 
+
+---
+欠账
+https://github.com/mims-harvard/Raindrop,基于GNN的非结构化数据的时间序列模型,医学数据集
+https://github.com/gmberton/CosPlace,一个在超大数据集上的位置检索的模型,模型和行人重识别的模型近似
+
     
