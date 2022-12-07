@@ -174,7 +174,7 @@ class ComputeLoss:
 
         return (lbox + lobj + lcls) * bs, torch.cat((lbox, lobj, lcls)).detach()
 
-    def build_targets(self, p, targets):  # 这里把GT分配给anchor,但是在yolo5里一个GT可以分配给多个anchor,可以提高召回率
+    def build_targets(self, p, targets):  # 这里把GT分配给anchor,但是在yolo5里一个GT可以分配给多个anchor
         # Build targets for compute_loss(), input targets(image,class,x,y,w,h)
         na, nt = self.na, targets.shape[0]  # number of anchors, targets 先验框数量3个,检测框标签148个
         tcls, tbox, indices, anch = [], [], [], []
@@ -183,9 +183,10 @@ class ComputeLoss:
         targets = torch.cat((targets.repeat(na, 1, 1), ai[..., None]), 2)  # append anchor indices (3,148,7) 把target复制3份,因为每类候选(小,中,大)框都各有三种不同的尺寸,[...,2:6]是xywh
 
         g = 0.5  # bias
+        # 通过off来做GT的偏移,提高正样本的数量,提高召回率
         off = torch.tensor(
             [
-                [0, 0],
+                [0, 0],  # 原始GT会保留,扩展的偏移GT按比例进行偏移
                 [1, 0],
                 [0, 1],
                 [-1, 0],
@@ -193,6 +194,11 @@ class ComputeLoss:
                 # [1, 1], [1, -1], [-1, 1], [-1, -1],  # jk,jm,lk,lm
             ],
             device=self.device).float() * g  # offsets
+        # tensor([[ 0.00000,  0.00000],
+        #         [ 0.50000,  0.00000],
+        #         [ 0.00000,  0.50000],
+        #         [-0.50000,  0.00000],
+        #         [ 0.00000, -0.50000]])
 
         for i in range(self.nl):  # 从第一类先验框一个个去迭代
             anchors, shape = self.anchors[i], p[i].shape  # 把第一类先验框和第一类检测输出的格式拿到
@@ -210,12 +216,13 @@ class ComputeLoss:
                 # Offsets
                 gxy = t[:, 2:4]  # grid xy 以整体特征图(0,0)为基准的gt的中心点位置
                 gxi = gain[[2, 3]] - gxy  # inverse 以整体特征图(80,80)为基准的中心点位置
-                # 这两行可以判断GT的中心点是落在了一个cell左上,左下,右上,右下的哪个位置
+                # 这里的j,k,l,m需要对比着offsets矩阵来看,这里是为GT偏移做准备
+                # 以j为例子,因为GT的xy会减去[ 0.50000,  0.00000],所以j是找到那些能往左偏移0.5个单位能到另一个grid cell里去的GT
                 j, k = ((gxy % 1 < g) & (gxy > 1)).T  # 中心点的x,y有没有偏移当前cell基准点(0,0)一半以上
                 l, m = ((gxi % 1 < g) & (gxi > 1)).T  # 中心点的x,y有没有偏移当前cell基准点(1,1)一半以上
-                j = torch.stack((torch.ones_like(j), j, k, l, m))
-                t = t.repeat((5, 1, 1))[j]
-                offsets = (torch.zeros_like(gxy)[None] + off[:, None])[j]
+                j = torch.stack((torch.ones_like(j), j, k, l, m))  # (5,116) 对着off矩阵复制5份,第一个默认全是true,因为要把原始GT保留
+                t = t.repeat((5, 1, 1))[j]  # (5,116,7)->(348,7) GT要复制成5份,因为要往4个方向偏移
+                offsets = (torch.zeros_like(gxy)[None] + off[:, None])[j]  #  GT扩展成了5份,那么对应的off也要扩展到对应大小
             else:
                 t = targets[0]
                 offsets = 0
@@ -223,7 +230,7 @@ class ComputeLoss:
             # Define
             bc, gxy, gwh, a = t.chunk(4, 1)  # (image, class), grid xy, grid wh, anchors
             a, (b, c) = a.long().view(-1), bc.long().T  # anchors, image, class
-            gij = (gxy - offsets).long()
+            gij = (gxy - offsets).long()  # 按照off来做GT的偏移
             gi, gj = gij.T  # grid indices
 
             # Append
