@@ -174,13 +174,13 @@ class ComputeLoss:
 
         return (lbox + lobj + lcls) * bs, torch.cat((lbox, lobj, lcls)).detach()
 
-    def build_targets(self, p, targets):
+    def build_targets(self, p, targets):  # 这里把GT分配给anchor,但是在yolo5里一个GT可以分配给多个anchor,可以提高召回率
         # Build targets for compute_loss(), input targets(image,class,x,y,w,h)
         na, nt = self.na, targets.shape[0]  # number of anchors, targets 先验框数量3个,检测框标签148个
         tcls, tbox, indices, anch = [], [], [], []
         gain = torch.ones(7, device=self.device)  # normalized to gridspace gain 初始化特征图维度的标签比例数据
         ai = torch.arange(na, device=self.device).float().view(na, 1).repeat(1, nt)  # same as .repeat_interleave(nt) (3)->(3,1)->(3,148),三种先验框,每种先验框有148个备选标签
-        targets = torch.cat((targets.repeat(na, 1, 1), ai[..., None]), 2)  # append anchor indices (3,148,7) 把target处理成三种候选框,每种148个备选标签,标签是由7个数组成
+        targets = torch.cat((targets.repeat(na, 1, 1), ai[..., None]), 2)  # append anchor indices (3,148,7) 把target复制3份,因为每类候选(小,中,大)框都各有三种不同的尺寸,[...,2:6]是xywh
 
         g = 0.5  # bias
         off = torch.tensor(
@@ -205,13 +205,14 @@ class ComputeLoss:
                 r = t[..., 4:6] / anchors[:, None]  # wh ratio 长宽和先验框的比值 TODO:还剩loss没搞
                 j = torch.max(r, 1 / r).max(2)[0] < self.hyp['anchor_t']  # compare
                 # j = wh_iou(anchors, t[:, 4:6]) > model.hyp['iou_t']  # iou(3,n)=wh_iou(anchors(3,2), gwh(n,2))
-                t = t[j]  # filter
+                t = t[j]  # filter 筛选出符合当前类候选框的target
 
                 # Offsets
-                gxy = t[:, 2:4]  # grid xy
-                gxi = gain[[2, 3]] - gxy  # inverse
-                j, k = ((gxy % 1 < g) & (gxy > 1)).T
-                l, m = ((gxi % 1 < g) & (gxi > 1)).T
+                gxy = t[:, 2:4]  # grid xy 以整体特征图(0,0)为基准的gt的中心点位置
+                gxi = gain[[2, 3]] - gxy  # inverse 以整体特征图(80,80)为基准的中心点位置
+                # 这两行可以判断GT的中心点是落在了一个cell左上,左下,右上,右下的哪个位置
+                j, k = ((gxy % 1 < g) & (gxy > 1)).T  # 中心点的x,y有没有偏移当前cell基准点(0,0)一半以上
+                l, m = ((gxi % 1 < g) & (gxi > 1)).T  # 中心点的x,y有没有偏移当前cell基准点(1,1)一半以上
                 j = torch.stack((torch.ones_like(j), j, k, l, m))
                 t = t.repeat((5, 1, 1))[j]
                 offsets = (torch.zeros_like(gxy)[None] + off[:, None])[j]
