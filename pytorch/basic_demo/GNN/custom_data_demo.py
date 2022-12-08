@@ -12,6 +12,8 @@ from torch_geometric.nn.pool import TopKPooling
 from torch_geometric.nn.conv import SAGEConv
 from torch_geometric.nn.pool.glob import global_mean_pool as gap, global_max_pool as gmp
 import torch.nn.functional as func
+from torch_geometric.loader import DataLoader
+from sklearn.metrics import roc_auc_score
 
 # 首先是一个超简单的例子,一个图,x是每个点的特征,y是标签
 x_ = torch.tensor([[2, 1], [5, 6], [3, 7], [12, 0]], dtype=torch.float)
@@ -121,7 +123,7 @@ class Net(torch.nn.Module):
         self.conv3 = SAGEConv(128, 128)
         self.pool3 = TopKPooling(128, ratio=0.8)
         # 类似NLP的词向量表,把item_id转成一个128维的向量
-        self.item_embedding = torch.nn.Embedding(num_embeddings=df.item_id.max() + 10, embedding_dim=embed_dim)
+        self.item_embedding = torch.nn.Embedding(num_embeddings=torch.max(dataset.data.x) + 10, embedding_dim=embed_dim)
         self.lin1 = torch.nn.Linear(128, 128)
         self.lin2 = torch.nn.Linear(128, 64)
         self.lin3 = torch.nn.Linear(64, 1)
@@ -131,48 +133,82 @@ class Net(torch.nn.Module):
         self.act2 = torch.nn.ReLU()
 
     def forward(self, data):
-        x, edge_index, batch = data.x, data.edge_index, data.batch  # x:n*1,其中每个图里点的个数是不同的
-        # print(x)
-        x = self.item_embedding(x)  # n*1*128 特征编码后的结果
-        # print('item_embedding',x.shape)
-        x = x.squeeze(1)  # n*128
-        # print('squeeze',x.shape)
-        x = func.relu(self.conv1(x, edge_index))  # n*128
-        # print('conv1',x.shape)
-        x, edge_index, _, batch, _, _ = self.pool1(x, edge_index, None, batch)  # pool之后得到 n*0.8个点
-        # print('self.pool1',x.shape)
-        # print('self.pool1',edge_index)
-        # print('self.pool1',batch)
-        # x1 = torch.cat([gmp(x, batch), gap(x, batch)], dim=1)
-        x1 = gap(x, batch)
-        # print('gmp',gmp(x, batch).shape) # batch*128
-        # print('cat',x1.shape) # batch*256
-        x = func.relu(self.conv2(x, edge_index))
-        # print('conv2',x.shape)
-        x, edge_index, _, batch, _, _ = self.pool2(x, edge_index, None, batch)
-        # print('pool2',x.shape)
-        # print('pool2',edge_index)
-        # print('pool2',batch)
-        # x2 = torch.cat([gmp(x, batch), gap(x, batch)], dim=1)
-        x2 = gap(x, batch)
-        # print('x2',x2.shape)
-        x = func.relu(self.conv3(x, edge_index))
-        # print('conv3',x.shape)
-        x, edge_index, _, batch, _, _ = self.pool3(x, edge_index, None, batch)
-        # print('pool3',x.shape)
-        # x3 = torch.cat([gmp(x, batch), gap(x, batch)], dim=1)
-        x3 = gap(x, batch)
-        # print('x3',x3.shape)# batch * 256
-        x = x1 + x2 + x3  # 获取不同尺度的全局特征
+        x, edge_index, batch = data.x, data.edge_index, data.batch  # 一个batch里64个图,每个图有各自点的个数,x:(n,1)
+        x = self.item_embedding(x)  # 把每个点编码成128维向量,(n,1,128)
+        x = x.squeeze(1)  # (n,128)
 
+        x = func.relu(self.conv1(x, edge_index))  # 做一次图卷积然后过激活函数
+        x, edge_index, _, batch, _, _ = self.pool1(x, edge_index, None, batch)  # 对每个图池化留下80%重要特征
+        # x1 = torch.cat([gmp(x, batch), gap(x, batch)], dim=1)  # 也能把平均池化和最大池化拼起来
+        x1 = gap(x, batch)  # 一个全局的平均池化得到图的特征,第一层输出,(64,128)
+        x = func.relu(self.conv2(x, edge_index))
+        x, edge_index, _, batch, _, _ = self.pool2(x, edge_index, None, batch)
+        # x2 = torch.cat([gmp(x, batch), gap(x, batch)], dim=1)
+        x2 = gap(x, batch)  # 第二层
+        x = func.relu(self.conv3(x, edge_index))
+        x, edge_index, _, batch, _, _ = self.pool3(x, edge_index, None, batch)
+        # x3 = torch.cat([gmp(x, batch), gap(x, batch)], dim=1)
+        x3 = gap(x, batch)  # 第三层
+
+        x = x1 + x2 + x3  # 获取不同尺度的全局特征
+        # 然后就正常一个全连接分类输出头,输出每个图的结果
         x = self.lin1(x)
-        # print('lin1',x.shape)
         x = self.act1(x)
         x = self.lin2(x)
-        # print('lin2',x.shape)
         x = self.act2(x)
         x = func.dropout(x, p=0.5, training=self.training)
 
         x = torch.sigmoid(self.lin3(x)).squeeze(1)  # batch个结果
-        # print('sigmoid',x.shape)
         return x
+
+
+def train():
+    model.train()
+
+    loss_all = 0
+    for data in train_loader:
+        data = data
+        # print('data',data)
+        optimizer.zero_grad()
+        output = model(data)
+        label = data.y
+        loss = crit(output, label)
+        loss.backward()
+        loss_all += data.num_graphs * loss.item()
+        optimizer.step()
+    return loss_all / len(dataset)
+
+
+model = Net()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+crit = torch.nn.BCELoss()
+train_loader = DataLoader(dataset, batch_size=64)
+for epoch in range(10):
+    print('epoch:', epoch)
+    loss = train()
+    print(loss)
+
+
+def evalute(loader, model):
+    model.eval()
+
+    prediction = []
+    labels = []
+
+    with torch.no_grad():
+        for data in loader:
+            data = data  # .to(device)
+            pred = model(data)  # .detach().cpu().numpy()
+
+            label = data.y  # .detach().cpu().numpy()
+            prediction.append(pred)
+            labels.append(label)
+    prediction = np.hstack(prediction)
+    labels = np.hstack(labels)
+
+    return roc_auc_score(labels, prediction)
+
+
+for epoch in range(1):
+    roc_auc_score = evalute(dataset, model)
+    print('roc_auc_score', roc_auc_score)
