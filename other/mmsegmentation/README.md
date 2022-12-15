@@ -4,6 +4,8 @@
 https://www.kaggle.com/intelecai/car-segmentation
 
 格式:
+
+```python
 ├── data
 │   ├── my_dataset
 │   │   ├── img_dir
@@ -18,6 +20,7 @@ https://www.kaggle.com/intelecai/car-segmentation
 │   │   │   │   ├── yyy{seg_map_suffix}
 │   │   │   │   ├── zzz{seg_map_suffix}
 │   │   │   ├── val
+```
 
 
 启动参数:
